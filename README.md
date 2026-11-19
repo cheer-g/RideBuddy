@@ -32,6 +32,46 @@ $env:ANDROID_HOME = "$env:LOCALAPPDATA\Android\Sdk"
 
 The APK is created at `app/build/outputs/apk/debug/app-debug.apk`.
 
+## Releases
+
+GitHub Actions verifies every push and pull request. A tag matching `vMAJOR.MINOR.PATCH`
+builds a signed installable APK and a signed Android App Bundle, then attaches both to a
+GitHub Release. The tag also supplies Android's `versionName`; `versionCode` is derived as
+`MAJOR * 1,000,000 + MINOR * 1,000 + PATCH`.
+
+Create an upload key once and keep it backed up outside this repository:
+
+```powershell
+& "$env:JAVA_HOME\bin\keytool.exe" -genkeypair -v -keystore ridebuddy-release.jks -alias ridebuddy -keyalg RSA -keysize 2048 -validity 10000
+```
+
+In GitHub, open **Settings → Secrets and variables → Actions** and add these repository secrets:
+
+- `SIGNING_KEY_BASE64`: Base64 content of `ridebuddy-release.jks`
+- `RELEASE_STORE_PASSWORD`: keystore password
+- `RELEASE_KEY_ALIAS`: `ridebuddy` (or the alias chosen above)
+- `RELEASE_KEY_PASSWORD`: key password
+- `GOOGLE_SERVICES_JSON_BASE64`: Base64 content of `app/google-services.json`
+
+Generate the two Base64 values in PowerShell without adding either private file to Git:
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes('ridebuddy-release.jks')) | Set-Clipboard
+[Convert]::ToBase64String([IO.File]::ReadAllBytes('app\google-services.json')) | Set-Clipboard
+```
+
+After the secrets are configured, create a release from a clean commit:
+
+```powershell
+git push project master
+git tag -a v0.2.0 -m "RideBuddy 0.2.0"
+git push project v0.2.0
+```
+
+The workflow publishes `RideBuddy-0.2.0.apk` for direct installation and
+`RideBuddy-0.2.0.aab` for Google Play. Never delete or replace the signing key after users
+install a release; future updates must be signed by the same key.
+
 ## Ride group modes
 
 On launch, RideBuddy keeps the map blurred behind a **Create ride / Join ride** choice. Connected riders enter a code and see the destination and organizer cutoff before joining. Each rider can choose an earlier personal sharing cutoff and optionally record a starting odometer value. Ending the ride accepts an ending odometer value and presents a personal duration/distance summary; connected members also store their supplied start/end readings in the trip member record.
