@@ -39,6 +39,7 @@ public class MainActivity extends Activity {
     private boolean tripActive;
     private String activeTripMode;
     private String activeTripCode;
+    private String activeRiderId;
     private long activeExpiresAt;
     private String activeDestinationTitle;
     private double activeDestinationLat;
@@ -67,6 +68,7 @@ public class MainActivity extends Activity {
                 tripActive = true;
                 activeTripMode = mode;
                 activeTripCode = code;
+                activeRiderId = riderId;
                 activeExpiresAt = expiresAt;
                 activeDestinationTitle = destinationTitle;
                 activeDestinationLat = destinationLat;
@@ -87,7 +89,7 @@ public class MainActivity extends Activity {
                         destinationTitle, Double.toString(destinationLat), Double.toString(destinationLng),
                         Double.toString(pendingOdometerStart));
                 startRideLocationService(mode, code, expiresAt, destinationTitle, destinationLat,
-                        destinationLng, pendingRiderName, pendingRiderPhone);
+                        destinationLng, riderId, pendingRiderName, pendingRiderPhone);
             }
             @Override public void onPairingRequest(String endpointId, String riderName, String digits) {
                 callJs("window.onPairingRequest", endpointId, riderName, digits);
@@ -120,7 +122,7 @@ public class MainActivity extends Activity {
                         Long.toString(tripExpiresAt));
                 startRideLocationService(activeTripMode, activeTripCode, sharingUntil,
                         activeDestinationTitle, activeDestinationLat, activeDestinationLng,
-                        pendingRiderName, pendingRiderPhone);
+                        activeRiderId, pendingRiderName, pendingRiderPhone);
             }
             @Override public void onStopsChanged(String stopsJson) {
                 callJs("window.onRouteStopsChanged", stopsJson);
@@ -441,7 +443,7 @@ public class MainActivity extends Activity {
 
     private void startRideLocationService(String mode, String code, long expiresAt,
                                           String destinationTitle, double destinationLat, double destinationLng,
-                                          String riderName, String riderPhone) {
+                                          String riderId, String riderName, String riderPhone) {
         runOnUiThread(() -> {
             if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
                     && checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
@@ -455,6 +457,7 @@ public class MainActivity extends Activity {
                     .putExtra(RideLocationService.EXTRA_DESTINATION_TITLE, destinationTitle)
                     .putExtra(RideLocationService.EXTRA_DESTINATION_LAT, destinationLat)
                     .putExtra(RideLocationService.EXTRA_DESTINATION_LNG, destinationLng)
+                    .putExtra(RideLocationService.EXTRA_RIDER_ID, riderId)
                     .putExtra(RideLocationService.EXTRA_RIDER_NAME, riderName)
                     .putExtra(RideLocationService.EXTRA_RIDER_PHONE, riderPhone);
             if (Build.VERSION.SDK_INT >= 33

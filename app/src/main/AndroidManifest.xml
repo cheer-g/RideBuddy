@@ -21,14 +21,19 @@
         android:theme="@style/Theme.RideBuddy"
         android:usesCleartextTraffic="false">
         <activity
-            android:name=".MainActivity"
-            android:configChanges="orientation|screenSize"
+            android:name=".SplashActivity"
             android:exported="true"
-            android:launchMode="singleTop">
+            android:theme="@style/Theme.RideBuddy.Splash">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+        </activity>
+        <activity
+            android:name=".MainActivity"
+            android:configChanges="orientation|screenSize"
+            android:exported="true"
+            android:launchMode="singleTop">
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />

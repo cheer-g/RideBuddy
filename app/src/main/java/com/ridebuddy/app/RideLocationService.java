@@ -29,6 +29,9 @@ import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 
 import java.util.HashMap;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 
 import java.text.DateFormat;
 import java.util.Date;
@@ -43,6 +46,7 @@ public final class RideLocationService extends Service implements LocationListen
     static final String EXTRA_DESTINATION_LAT = "destination_lat";
     static final String EXTRA_DESTINATION_LNG = "destination_lng";
     static final String EXTRA_RIDER_NAME = "rider_name";
+    static final String EXTRA_RIDER_ID = "rider_id";
     static final String EXTRA_RIDER_PHONE = "rider_phone";
     private static final String ACTION_STOP = "com.ridebuddy.app.STOP_SHARING";
     private static final String CHANNEL_ID = "active_ride";
@@ -65,7 +69,9 @@ public final class RideLocationService extends Service implements LocationListen
     private double destinationLng;
     private long expiresAt;
     private String riderName = "Rider";
+    private String localRiderId = "";
     private String riderPhone = "";
+    private Location latestLocation;
     private String cloudRiderId;
     private DatabaseReference cloudLocation;
     private DatabaseReference cloudLocationsRoot;
@@ -77,8 +83,19 @@ public final class RideLocationService extends Service implements LocationListen
         String phone;
         long updatedAt;
         double accuracy;
+        double lat;
+        double lng;
         boolean staleAlerted;
         String safetyAlertId = "";
+    }
+
+    private static final class RiderProgress {
+        final String name;
+        final double distanceToDestinationKm;
+        RiderProgress(String name, double distanceToDestinationKm) {
+            this.name = name;
+            this.distanceToDestinationKm = distanceToDestinationKm;
+        }
     }
 
     static void setListener(Listener value) { listener = value; }
@@ -142,6 +159,7 @@ public final class RideLocationService extends Service implements LocationListen
             destinationLat = intent.getDoubleExtra(EXTRA_DESTINATION_LAT, 0);
             destinationLng = intent.getDoubleExtra(EXTRA_DESTINATION_LNG, 0);
             riderName = intent.getStringExtra(EXTRA_RIDER_NAME);
+            localRiderId = intent.getStringExtra(EXTRA_RIDER_ID);
             riderPhone = intent.getStringExtra(EXTRA_RIDER_PHONE);
             if (riderName == null || riderName.isBlank()) riderName = "Rider";
             if (riderPhone == null) riderPhone = "";
@@ -149,6 +167,7 @@ public final class RideLocationService extends Service implements LocationListen
                     .putBoolean("active", true)
                     .putLong(EXTRA_EXPIRES_AT, expiresAt)
                     .putString(EXTRA_DESTINATION_TITLE, destinationTitle)
+                    .putString(EXTRA_RIDER_ID, localRiderId)
                     .putString(EXTRA_RIDER_NAME, riderName)
                     .putString(EXTRA_RIDER_PHONE, riderPhone)
                     .putLong("destination_lat_bits", Double.doubleToRawLongBits(destinationLat))
@@ -161,6 +180,7 @@ public final class RideLocationService extends Service implements LocationListen
             destinationLat = Double.longBitsToDouble(state.getLong("destination_lat_bits", 0));
             destinationLng = Double.longBitsToDouble(state.getLong("destination_lng_bits", 0));
             riderName = state.getString(EXTRA_RIDER_NAME, "Rider");
+            localRiderId = state.getString(EXTRA_RIDER_ID, "");
             riderPhone = state.getString(EXTRA_RIDER_PHONE, "");
         }
         if (expiresAt <= System.currentTimeMillis()) {
@@ -215,7 +235,7 @@ public final class RideLocationService extends Service implements LocationListen
 
     private void updateRider(JSONObject value) {
         String id = value.optString("riderId");
-        if (id.isBlank() || id.equals(cloudRiderId)) return;
+        if (id.isBlank() || id.equals(localRiderId) || id.equals(cloudRiderId)) return;
         RiderState rider = riders.get(id);
         if (rider == null) {
             rider = new RiderState();
@@ -226,6 +246,8 @@ public final class RideLocationService extends Service implements LocationListen
         rider.phone = value.optString("phone", "");
         rider.updatedAt = value.optLong("updatedAt", System.currentTimeMillis());
         rider.accuracy = value.optDouble("accuracy", 0);
+        rider.lat = value.optDouble("lat", Double.NaN);
+        rider.lng = value.optDouble("lng", Double.NaN);
         String alertId = value.optString("safetyAlertId", "");
         String safetyType = value.optString("safetyType", "");
         if (!alertId.isBlank() && !alertId.equals(rider.safetyAlertId)) {
@@ -253,6 +275,7 @@ public final class RideLocationService extends Service implements LocationListen
     }
 
     private Notification buildNotification(String status) {
+        pruneStaleRiders();
         Intent openApp = new Intent(this, MainActivity.class);
         PendingIntent appIntent = PendingIntent.getActivity(this, 1, openApp,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
@@ -268,12 +291,12 @@ public final class RideLocationService extends Service implements LocationListen
         PendingIntent stopIntent = PendingIntent.getService(this, 3, stop,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
-        String details = label + "\nTrip " + tripCode + " · " + riderCountText()
-                + "\nEnds " + formatTime(expiresAt) + " · " + status;
+        String details = "RIDING TO\n" + label + "\n\n" + buildRiderStandings()
+                + "\n\nRIDE ENDS\n" + formatTime(expiresAt) + " · " + status;
         return new Notification.Builder(this, CHANNEL_ID)
                 .setSmallIcon(com.ridebuddy.app.R.drawable.ic_launcher)
-                .setContentTitle("RideBuddy → " + label)
-                .setContentText("Trip " + tripCode + " · " + status)
+                .setContentTitle("Riding to " + label)
+                .setContentText(riderCountText() + " · ends " + formatTime(expiresAt))
                 .setSubText("nearby".equals(tripMode) ? "Nearby Ride" : "Connected Ride")
                 .setStyle(new Notification.BigTextStyle().bigText(details))
                 .setContentIntent(appIntent)
@@ -305,15 +328,52 @@ public final class RideLocationService extends Service implements LocationListen
     }
 
     private String riderCountText() {
-        long staleBefore = System.currentTimeMillis() - 120_000;
-        riders.entrySet().removeIf(entry -> entry.getValue().updatedAt < staleBefore);
         int attention = 0;
         long now = System.currentTimeMillis();
         for (RiderState rider : riders.values()) {
             if (now - rider.updatedAt > 60_000 || rider.accuracy > 50) attention++;
         }
-        String text = riders.size() + (riders.size() == 1 ? " rider visible" : " riders visible");
+        int total = riders.size() + 1;
+        String text = total + (total == 1 ? " rider" : " riders");
         return attention > 0 ? text + " · " + attention + " need attention" : text;
+    }
+
+    private void pruneStaleRiders() {
+        long staleBefore = System.currentTimeMillis() - 120_000;
+        riders.entrySet().removeIf(entry -> entry.getValue().updatedAt < staleBefore);
+    }
+
+    private String buildRiderStandings() {
+        List<RiderProgress> progress = new ArrayList<>();
+        if (latestLocation != null) {
+            progress.add(new RiderProgress(riderName + " (you)", distanceToDestinationKm(
+                    latestLocation.getLatitude(), latestLocation.getLongitude())));
+        }
+        for (RiderState rider : riders.values()) {
+            if (!Double.isNaN(rider.lat) && !Double.isNaN(rider.lng)) {
+                progress.add(new RiderProgress(rider.name == null ? "Rider" : rider.name,
+                        distanceToDestinationKm(rider.lat, rider.lng)));
+            }
+        }
+        if (progress.isEmpty()) return "RIDERS\nWaiting for live positions…";
+        progress.sort(Comparator.comparingDouble(item -> item.distanceToDestinationKm));
+        double leaderDistance = progress.get(0).distanceToDestinationKm;
+        StringBuilder board = new StringBuilder("RIDERS — APPROX. GAP\n");
+        for (int index = 0; index < progress.size(); index++) {
+            RiderProgress rider = progress.get(index);
+            board.append(index + 1).append(". ").append(rider.name).append(" — ");
+            if (index == 0) board.append("LEAD");
+            else board.append(String.format(Locale.getDefault(), "≈%.1f km behind",
+                    Math.max(0, rider.distanceToDestinationKm - leaderDistance)));
+            if (index < progress.size() - 1) board.append('\n');
+        }
+        return board.toString();
+    }
+
+    private double distanceToDestinationKm(double lat, double lng) {
+        float[] result = new float[1];
+        Location.distanceBetween(lat, lng, destinationLat, destinationLng, result);
+        return result[0] / 1000.0;
     }
 
     private void checkRiderHealth() {
@@ -375,7 +435,9 @@ public final class RideLocationService extends Service implements LocationListen
 
     @Override public IBinder onBind(Intent intent) { return null; }
     @Override public void onLocationChanged(Location location) {
+        latestLocation = new Location(location);
         if ("cloud".equals(tripMode)) publishCloudLocation(location);
+        refreshNotification();
         Listener current = listener;
         if (current != null) current.onLocation(location);
     }

@@ -15,8 +15,9 @@
     #map { z-index:1; }
     .top { position:fixed; z-index:500; top:0; left:0; right:0; padding:max(14px,env(safe-area-inset-top)) 14px 0; pointer-events:none; }
     .brand-row { display:flex; align-items:center; justify-content:space-between; margin:0 5px 10px; }
-    .brand { display:flex; align-items:center; gap:9px; color:white; font-weight:800; letter-spacing:.2px; text-shadow:0 1px 8px #0008; }
-    .brand-mark { display:grid; place-items:center; width:32px; height:32px; border-radius:11px; color:var(--ink); background:var(--accent); box-shadow:0 5px 16px #0003; }
+    .brand { display:flex; align-items:center; padding:5px 9px; border-radius:12px; background:#fffffff0; box-shadow:0 5px 16px #0003; }
+    .brand-logo { display:block; width:132px; height:28px; object-fit:contain; }
+    .welcome-logo { display:block; width:min(240px,70vw); height:auto; max-height:82px; object-fit:contain; }
     .riders-btn { pointer-events:auto; border:0; height:38px; padding:0 13px; border-radius:13px; background:#fffffff2; color:var(--ink); font-weight:800; box-shadow:0 5px 16px #0003; }
     .search { display:flex; align-items:center; gap:10px; height:56px; padding:0 10px 0 17px; border-radius:18px; background:#fffffff5; box-shadow:0 9px 30px #10231d35; pointer-events:auto; }
     .search input { min-width:0; flex:1; border:0; outline:0; font-size:16px; color:var(--ink); background:transparent; }
@@ -121,6 +122,13 @@
     .safety-banner button { margin-top:8px; border:0; padding:8px 10px; border-radius:9px; background:white; color:#9f211b; font-weight:900; }
     .safety-actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:16px; }
     .safety-actions button { min-height:78px; border:0; border-radius:17px; color:white; font-size:16px; font-weight:950; }
+    .confirm-icon { display:grid; place-items:center; width:48px; height:48px; margin-bottom:13px; border-radius:16px; background:#fff0d0; font-size:24px; }
+    .confirm-message { margin:8px 0 18px; color:var(--muted); line-height:1.45; white-space:pre-line; }
+    .confirm-actions { display:grid; grid-template-columns:1fr 1fr; gap:9px; }
+    .confirm-actions button { height:49px; border:0; border-radius:14px; font-weight:900; }
+    .confirm-cancel { background:#e2e8e5; color:var(--ink); }
+    .confirm-accept { background:var(--ink); color:white; }
+    .confirm-accept.danger { background:#d9433c; }
     .leaflet-control-attribution { font-size:9px; }
     .pin { width:24px!important; height:24px!important; margin:-12px!important; border:4px solid white; border-radius:50% 50% 50% 0; background:var(--accent); box-shadow:0 3px 9px #0005; transform:rotate(-45deg); }
     .me { width:20px!important; height:20px!important; margin:-10px!important; border:4px solid white; border-radius:50%; background:#3975e8; box-shadow:0 0 0 5px #3975e844; }
@@ -129,7 +137,7 @@
 <body class="welcome-open">
   <div id="map"></div>
   <div class="top">
-    <div class="brand-row"><div class="brand"><div class="brand-mark">↗</div> RideBuddy</div><button class="riders-btn" id="ridersBtn">● Ride group</button></div>
+    <div class="brand-row"><div class="brand"><img class="brand-logo" src="ridebuddy_logo.png" alt="RideBuddy"></div><button class="riders-btn" id="ridersBtn">● Ride group</button></div>
     <form class="search" id="searchForm">
       <input id="query" autocomplete="off" placeholder="Where are you riding to?" aria-label="Search destination">
       <button type="submit" aria-label="Search">⌕</button>
@@ -162,7 +170,7 @@
   </section>
   <div class="modal center" id="welcomeModal" style="display:flex">
     <div class="modal-card">
-      <div class="modal-head"><div class="brand" style="color:var(--ink);text-shadow:none"><div class="brand-mark">↗</div> RideBuddy</div><button class="close" id="closeWelcome" aria-label="Back to ride" style="display:none">←</button></div>
+      <div class="modal-head"><img class="welcome-logo" src="ridebuddy_logo.png" alt="RideBuddy"><button class="close" id="closeWelcome" aria-label="Back to ride" style="display:none">←</button></div>
       <h2 style="margin-top:22px">Ready to ride?</h2>
       <p style="color:var(--muted);margin:7px 0 0">Create a group ride or join your mates with an invitation code.</p>
       <div class="choice-grid">
@@ -251,6 +259,14 @@
       <div class="stop-actions"><button data-stop="regroup">🏁 REGROUP</button><button data-stop="fuel">⛽ FUEL</button><button data-stop="rest">☕ REST</button></div>
       <div id="organizerStops"></div>
       <button class="primary" id="endForEveryone" style="width:100%;margin-top:16px;background:#d9433c">END RIDE FOR EVERYONE</button>
+    </div>
+  </div>
+  <div class="modal center" id="confirmModal">
+    <div class="modal-card">
+      <div class="confirm-icon" id="confirmIcon">⚠</div>
+      <h2 id="confirmTitle">Are you sure?</h2>
+      <p class="confirm-message" id="confirmMessage"></p>
+      <div class="confirm-actions"><button class="confirm-cancel" id="confirmCancel">CANCEL</button><button class="confirm-accept" id="confirmAccept">CONFIRM</button></div>
     </div>
   </div>
 
@@ -391,6 +407,8 @@
     const endModal = document.getElementById('endModal');
     const organizerModal = document.getElementById('organizerModal');
     const safetyModal = document.getElementById('safetyModal');
+    const confirmModal = document.getElementById('confirmModal');
+    let pendingConfirmAction, pendingCancelAction;
     document.getElementById('riderName').value = localStorage.getItem('ridebuddyName') || '';
     document.getElementById('joinRiderName').value = localStorage.getItem('ridebuddyName') || '';
     document.getElementById('riderPhone').value = localStorage.getItem('ridebuddyPhone') || '';
@@ -404,6 +422,7 @@
     }
     function leaveWelcome() { document.body.classList.remove('welcome-open'); welcomeModal.style.display='none'; }
     function closeTopPage() {
+      if (confirmModal.style.display==='flex') { dismissRideConfirm(false); return true; }
       const simplePages=[safetyModal,organizerModal,endModal];
       const simple=simplePages.find(page=>page.style.display==='flex');
       if (simple) { simple.style.display='none'; return true; }
@@ -417,6 +436,23 @@
       return false;
     }
     window.handleBackNavigation=closeTopPage;
+    function showRideConfirm({title,message,confirmLabel='CONFIRM',icon='⚠',danger=false,onConfirm,onCancel}) {
+      document.getElementById('confirmTitle').textContent=title;
+      document.getElementById('confirmMessage').textContent=message;
+      document.getElementById('confirmIcon').textContent=icon;
+      const accept=document.getElementById('confirmAccept');
+      accept.textContent=confirmLabel; accept.classList.toggle('danger',danger);
+      pendingConfirmAction=onConfirm; pendingCancelAction=onCancel;
+      confirmModal.style.display='flex';
+    }
+    function dismissRideConfirm(accepted) {
+      confirmModal.style.display='none';
+      const action=accepted ? pendingConfirmAction : pendingCancelAction;
+      pendingConfirmAction=undefined; pendingCancelAction=undefined;
+      if (action) action();
+    }
+    document.getElementById('confirmAccept').onclick=()=>dismissRideConfirm(true);
+    document.getElementById('confirmCancel').onclick=()=>dismissRideConfirm(false);
     document.getElementById('ridersBtn').onclick = showWelcome;
     document.getElementById('welcomeCreate').onclick = () => { leaveWelcome(); tripModal.style.display='flex'; };
     document.getElementById('welcomeJoin').onclick = () => { leaveWelcome(); selectedTripMode='cloud'; joinModal.style.display='flex'; };
@@ -426,10 +462,10 @@
     document.getElementById('closeJoin').onclick = closeTopPage;
     document.getElementById('closeHistory').onclick = closeTopPage;
     document.getElementById('clearHistory').onclick = () => {
-      if (!confirm('Clear all saved ride summaries from this phone?')) return;
-      localStorage.removeItem('ridebuddyHistory'); renderRideHistory();
+      showRideConfirm({title:'Clear ride history?',message:'All saved ride summaries on this phone will be permanently removed.',confirmLabel:'CLEAR HISTORY',icon:'⌫',danger:true,
+        onConfirm:()=>{ localStorage.removeItem('ridebuddyHistory'); renderRideHistory(); }});
     };
-    [tripModal,joinModal,historyModal,endModal,safetyModal,organizerModal].forEach(page =>
+    [tripModal,joinModal,historyModal,endModal,safetyModal,organizerModal,confirmModal].forEach(page =>
       page.addEventListener('click', event => { if (event.target===page) closeTopPage(); }));
     document.getElementById('createDestinationForm').onsubmit = event => {
       event.preventDefault();
@@ -626,8 +662,8 @@
     document.getElementById('openSafety').onclick = () => safetyModal.style.display = 'flex';
     document.getElementById('closeSafety').onclick = () => safetyModal.style.display = 'none';
     document.getElementById('sendSos').onclick = () => {
-      if (!confirm('Send an SOS with your live location to every rider?')) return;
-      RideBuddyApi.setSafetyStatus('sos'); safetyModal.style.display='none'; showToast('SOS sent to the ride group.');
+      showRideConfirm({title:'Send emergency SOS?',message:'Every rider will receive an urgent alert with your live location.',confirmLabel:'SEND SOS',icon:'🆘',danger:true,
+        onConfirm:()=>{ RideBuddyApi.setSafetyStatus('sos'); safetyModal.style.display='none'; showToast('SOS sent to the ride group.'); }});
     };
     document.getElementById('sendBreakdown').onclick = () => {
       RideBuddyApi.setSafetyStatus('breakdown'); safetyModal.style.display='none'; showToast('Breakdown alert sent.');
@@ -649,7 +685,8 @@
       RideBuddyApi.extendTrip(value);
     };
     document.getElementById('endForEveryone').onclick = () => {
-      if (confirm('End this ride for every rider?')) RideBuddyApi.endTripForEveryone();
+      showRideConfirm({title:'End ride for everyone?',message:'Location sharing will stop immediately for every rider. This cannot be undone.',confirmLabel:'END FOR EVERYONE',icon:'■',danger:true,
+        onConfirm:()=>RideBuddyApi.endTripForEveryone()});
     };
     document.querySelectorAll('[data-stop]').forEach(button => button.onclick = () => {
       if (!currentPosition) return showToast('Waiting for your GPS position.');
@@ -675,9 +712,11 @@
         row.appendChild(identity);
         if (isOrganizer && member.id !== activeRiderId) {
           const promote = document.createElement('button'); promote.textContent = 'MAKE ORGANIZER';
-          promote.onclick = () => { if (confirm('Make ' + (member.name||'this rider') + ' the organizer?')) RideBuddyApi.makeOrganizer(member.id); };
+          promote.onclick = () => showRideConfirm({title:'Transfer organizer role?',message:(member.name||'This rider')+' will receive full ride management controls.',confirmLabel:'MAKE ORGANIZER',icon:'★',
+            onConfirm:()=>RideBuddyApi.makeOrganizer(member.id)});
           const remove = document.createElement('button'); remove.textContent = 'REMOVE';
-          remove.onclick = () => { if (confirm('Remove ' + (member.name||'this rider') + '?')) RideBuddyApi.removeRider(member.id); };
+          remove.onclick = () => showRideConfirm({title:'Remove rider?',message:(member.name||'This rider')+' will stop sharing and be removed from the ride.',confirmLabel:'REMOVE RIDER',icon:'−',danger:true,
+            onConfirm:()=>RideBuddyApi.removeRider(member.id)});
           row.appendChild(promote); row.appendChild(remove);
         }
         list.appendChild(row);
@@ -777,8 +816,8 @@
       }
     };
     window.onPairingRequest = (endpointId, name, digits) => {
-      const accepted = confirm('Connect to ' + name + '?\n\nConfirm that both phones show: ' + digits);
-      RideBuddyApi.respondToPairing(endpointId, accepted);
+      showRideConfirm({title:'Connect to '+name+'?',message:'Confirm that both phones show this pairing code:\n\n'+digits,confirmLabel:'CONNECT',icon:'⌁',
+        onConfirm:()=>RideBuddyApi.respondToPairing(endpointId,true),onCancel:()=>RideBuddyApi.respondToPairing(endpointId,false)});
     };
     window.onRiderLocation = raw => {
       const rider = JSON.parse(raw);
