@@ -34,7 +34,7 @@
     .trip h2 { margin:3px 0; font-size:17px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .trip p { margin:0; font-size:13px; color:#d9e1de; }
     .go { border:0; flex:0 0 64px; height:64px; border-radius:20px; background:var(--accent); color:var(--ink); font-weight:900; font-size:14px; }
-    .toast { position:fixed; z-index:700; left:50%; bottom:28px; transform:translateX(-50%); display:none; max-width:85%; padding:11px 16px; border-radius:20px; background:#10231dea; color:white; font-size:13px; text-align:center; }
+    .toast { position:fixed; z-index:1200; left:50%; bottom:28px; transform:translateX(-50%); display:none; max-width:85%; padding:11px 16px; border-radius:20px; background:#10231dea; color:white; font-size:13px; text-align:center; box-shadow:0 8px 24px #0005; }
     .trip-live { position:fixed; z-index:510; left:14px; bottom:126px; display:none; align-items:center; gap:9px; padding:9px 10px 9px 13px; border-radius:15px; background:white; color:var(--ink); box-shadow:0 7px 24px #10231d3d; }
     .trip-live span { font-size:12px; line-height:1.2; }
     .trip-live strong { display:block; font-size:14px; letter-spacing:1.2px; }
@@ -512,13 +512,20 @@
       const form = tripForm();
       const odoText = document.getElementById('creatorOdometerStart').value;
       pendingOdometerStart = odoText === '' ? -1 : Number(odoText);
-      if (pendingOdometerStart < 0 || !Number.isFinite(pendingOdometerStart)) return showToast('Enter a valid starting odometer.');
+      if (odoText !== '' && (pendingOdometerStart < 0 || !Number.isFinite(pendingOdometerStart))) {
+        document.getElementById('tripHint').textContent = 'Enter a valid starting odometer, or leave it blank.';
+        return showToast('Enter a valid starting odometer, or leave it blank.');
+      }
       if (!destination) {
         document.getElementById('createDestinationQuery').focus();
+        document.getElementById('tripHint').textContent = 'Search and select a destination in this form.';
         return showToast('Search and select a destination in this form.');
       }
       const expiresAt = new Date(document.getElementById('tripEnd').value).getTime();
-      if (!expiresAt || expiresAt < Date.now() + 60000) return showToast('Choose a future trip end time.');
+      if (!expiresAt || expiresAt < Date.now() + 60000) {
+        document.getElementById('tripHint').textContent = 'Choose a trip end time at least one minute from now.';
+        return showToast('Choose a trip end time at least one minute from now.');
+      }
       document.getElementById('tripHint').textContent = 'Creating trip…';
       RideBuddyApi.createTrip(selectedTripMode, form.name, expiresAt,
         destination.title, destination.lat, destination.lng, pendingOdometerStart, form.phone);
