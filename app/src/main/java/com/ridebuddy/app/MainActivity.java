@@ -9,6 +9,7 @@ import android.location.Location;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Build;
+import android.provider.Settings;
 import android.window.OnBackInvokedDispatcher;
 import android.webkit.GeolocationPermissions;
 import android.webkit.JavascriptInterface;
@@ -31,10 +32,12 @@ public class MainActivity extends Activity {
     private static final int LOCATION_REQUEST = 42;
     private static final int NEARBY_REQUEST = 43;
     private static final int NOTIFICATION_REQUEST = 44;
+    private static final int OVERLAY_REQUEST = 45;
     private WebView mapView;
     private TripSyncManager tripSyncManager;
     private Runnable pendingNearbyAction;
     private Intent pendingServiceIntent;
+    private boolean pendingOverlayEnable;
     private boolean activityAlive = true;
     private boolean tripActive;
     private String activeTripMode;
@@ -126,6 +129,7 @@ public class MainActivity extends Activity {
             }
             @Override public void onStopsChanged(String stopsJson) {
                 callJs("window.onRouteStopsChanged", stopsJson);
+                RideLocationService.updateOverlayStops(stopsJson);
             }
         });
 
@@ -188,6 +192,15 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        if (pendingOverlayEnable && tripActive && Settings.canDrawOverlays(this)) {
+            pendingOverlayEnable = false;
+            setRideOverlayEnabled(true);
+        }
+    }
+
+    @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(requestCode, permissions, results);
         if (requestCode == LOCATION_REQUEST && pendingGeoCallback != null) {
@@ -206,6 +219,19 @@ public class MainActivity extends Activity {
             Intent service = pendingServiceIntent;
             pendingServiceIntent = null;
             startForegroundService(service);
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != OVERLAY_REQUEST || !pendingOverlayEnable) return;
+        pendingOverlayEnable = false;
+        if (Settings.canDrawOverlays(this)) {
+            setRideOverlayEnabled(true);
+        } else {
+            callJs("window.onOverlayState", "false");
+            callJs("window.onTripStatus", "Allow Display over other apps to use the Ride HUD with Google Maps.");
         }
     }
 
@@ -302,6 +328,29 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void setSafetyStatus(String type) { tripSyncManager.setSafetyStatus(type); }
         @JavascriptInterface public void clearSafetyStatus() { tripSyncManager.clearSafetyStatus(); }
         @JavascriptInterface public void acknowledgeSafety(String alertId) { tripSyncManager.acknowledgeSafety(alertId); }
+
+        @JavascriptInterface
+        public void toggleRideOverlay() {
+            runOnUiThread(() -> {
+                if (!tripActive) {
+                    callJs("window.onTripStatus", "Start or join a ride before opening the Ride HUD.");
+                    return;
+                }
+                if (RideLocationService.isOverlayVisible()) {
+                    setRideOverlayEnabled(false);
+                    return;
+                }
+                if (!Settings.canDrawOverlays(MainActivity.this)) {
+                    pendingOverlayEnable = true;
+                    callJs("window.onTripStatus", "Enable Display over other apps, then return to RideBuddy.");
+                    Intent settings = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            Uri.parse("package:" + getPackageName()));
+                    startActivityForResult(settings, OVERLAY_REQUEST);
+                    return;
+                }
+                setRideOverlayEnabled(true);
+            });
+        }
 
         @JavascriptInterface
         public void shareTrip(String mode, String code) {
@@ -475,7 +524,16 @@ public class MainActivity extends Activity {
         getSharedPreferences("active_ride", MODE_PRIVATE).edit().clear().apply();
         tripSyncManager.leave();
         stopService(new Intent(this, RideLocationService.class));
+        callJs("window.onOverlayState", "false");
         callJs("window.onTripEnded", reason);
+    }
+
+    private void setRideOverlayEnabled(boolean enabled) {
+        Intent intent = new Intent(this, RideLocationService.class)
+                .setAction(enabled ? RideLocationService.ACTION_SHOW_OVERLAY
+                        : RideLocationService.ACTION_HIDE_OVERLAY);
+        startService(intent);
+        callJs("window.onOverlayState", Boolean.toString(enabled));
     }
 
     private void onRideLocation(Location location) {

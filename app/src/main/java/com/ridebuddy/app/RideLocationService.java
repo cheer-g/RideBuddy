@@ -9,6 +9,10 @@ import android.app.Service;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
+import android.graphics.PixelFormat;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
@@ -17,7 +21,15 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.provider.Settings;
+import android.view.Gravity;
+import android.view.MotionEvent;
+import android.view.View;
+import android.view.WindowManager;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import com.google.firebase.FirebaseApp;
@@ -49,6 +61,8 @@ public final class RideLocationService extends Service implements LocationListen
     static final String EXTRA_RIDER_ID = "rider_id";
     static final String EXTRA_RIDER_PHONE = "rider_phone";
     private static final String ACTION_STOP = "com.ridebuddy.app.STOP_SHARING";
+    static final String ACTION_SHOW_OVERLAY = "com.ridebuddy.app.SHOW_RIDE_OVERLAY";
+    static final String ACTION_HIDE_OVERLAY = "com.ridebuddy.app.HIDE_RIDE_OVERLAY";
     private static final String CHANNEL_ID = "active_ride";
     private static final String ALERT_CHANNEL_ID = "ride_alerts";
 
@@ -76,6 +90,13 @@ public final class RideLocationService extends Service implements LocationListen
     private DatabaseReference cloudLocation;
     private DatabaseReference cloudLocationsRoot;
     private ChildEventListener cloudRiderListener;
+    private WindowManager windowManager;
+    private View overlayView;
+    private TextView overlayTitle;
+    private TextView overlayDestination;
+    private TextView overlayRiders;
+    private TextView overlayEvents;
+    private String overlayStopsSummary = "";
 
     private static final class RiderState {
         String id;
@@ -85,8 +106,10 @@ public final class RideLocationService extends Service implements LocationListen
         double accuracy;
         double lat;
         double lng;
+        double speed;
         boolean staleAlerted;
         String safetyAlertId = "";
+        String safetyType = "";
     }
 
     private static final class RiderProgress {
@@ -99,6 +122,16 @@ public final class RideLocationService extends Service implements LocationListen
     }
 
     static void setListener(Listener value) { listener = value; }
+
+    static boolean isOverlayVisible() {
+        return instance != null && instance.overlayView != null;
+    }
+
+    static void updateOverlayStops(String json) {
+        RideLocationService service = instance;
+        if (service == null) return;
+        service.handler.post(() -> service.acceptOverlayStops(json));
+    }
 
     static void noteRider(String json) {
         RideLocationService service = instance;
@@ -187,9 +220,13 @@ public final class RideLocationService extends Service implements LocationListen
             requestStop("Trip time ended. Location sharing stopped.");
             return START_NOT_STICKY;
         }
+        if (intent != null && ACTION_SHOW_OVERLAY.equals(intent.getAction())) showRideOverlay();
+        if (intent != null && ACTION_HIDE_OVERLAY.equals(intent.getAction())) hideRideOverlay(true);
+        if (getSharedPreferences("active_ride", MODE_PRIVATE).getBoolean("overlay_enabled", false)
+                && Settings.canDrawOverlays(this)) showRideOverlay();
         handler.removeCallbacks(notificationTick);
         handler.post(notificationTick);
-        if ("cloud".equals(tripMode)) setupCloudPublisher();
+        if ("cloud".equals(tripMode) && cloudLocation == null) setupCloudPublisher();
         return START_REDELIVER_INTENT;
     }
 
@@ -248,8 +285,10 @@ public final class RideLocationService extends Service implements LocationListen
         rider.accuracy = value.optDouble("accuracy", 0);
         rider.lat = value.optDouble("lat", Double.NaN);
         rider.lng = value.optDouble("lng", Double.NaN);
+        rider.speed = value.optDouble("speed", 0);
         String alertId = value.optString("safetyAlertId", "");
         String safetyType = value.optString("safetyType", "");
+        rider.safetyType = safetyType;
         if (!alertId.isBlank() && !alertId.equals(rider.safetyAlertId)) {
             rider.safetyAlertId = alertId;
             sendRiderAlert(rider, rider.name + ("breakdown".equals(safetyType)
@@ -325,6 +364,194 @@ public final class RideLocationService extends Service implements LocationListen
         long remaining = Math.max(0, expiresAt - System.currentTimeMillis());
         getSystemService(NotificationManager.class).notify(71,
                 buildNotification(formatDuration(remaining) + " remaining"));
+        refreshOverlay();
+    }
+
+    private void acceptOverlayStops(String json) {
+        try {
+            JSONArray stops = new JSONArray(json == null ? "[]" : json);
+            StringBuilder summary = new StringBuilder();
+            int start = Math.max(0, stops.length() - 2);
+            for (int i = start; i < stops.length(); i++) {
+                JSONObject stop = stops.optJSONObject(i);
+                if (stop == null) continue;
+                if (summary.length() > 0) summary.append('\n');
+                String type = stop.optString("type", "marker").toUpperCase(Locale.US);
+                String label = stop.optString("label", "Route marker");
+                summary.append("◆ ").append(type).append(" · ").append(label);
+            }
+            overlayStopsSummary = summary.toString();
+            refreshOverlay();
+        } catch (Exception ignored) { }
+    }
+
+    private void showRideOverlay() {
+        if (!Settings.canDrawOverlays(this) || overlayView != null) return;
+        windowManager = getSystemService(WindowManager.class);
+
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(14), dp(11), dp(14), dp(12));
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(Color.argb(242, 10, 28, 23));
+        background.setCornerRadius(dp(18));
+        background.setStroke(dp(1), Color.argb(90, 247, 183, 49));
+        card.setBackground(background);
+        card.setElevation(dp(10));
+
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        overlayTitle = overlayText("RIDEBUDDY HUD", 12, Color.rgb(247, 183, 49), true);
+        header.addView(overlayTitle, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        TextView close = overlayText("×", 22, Color.WHITE, true);
+        close.setGravity(Gravity.CENTER);
+        close.setContentDescription("Close RideBuddy overlay");
+        close.setOnClickListener(view -> hideRideOverlay(true));
+        header.addView(close, new LinearLayout.LayoutParams(dp(36), dp(36)));
+        card.addView(header);
+
+        overlayDestination = overlayText("", 11, Color.rgb(198, 210, 206), false);
+        overlayDestination.setPadding(0, 0, 0, dp(7));
+        card.addView(overlayDestination);
+        overlayRiders = overlayText("Waiting for live positions…", 13, Color.WHITE, false);
+        overlayRiders.setLineSpacing(dp(3), 1f);
+        card.addView(overlayRiders);
+        overlayEvents = overlayText("", 11, Color.rgb(255, 198, 91), true);
+        overlayEvents.setPadding(0, dp(8), 0, 0);
+        card.addView(overlayEvents);
+
+        WindowManager.LayoutParams params = new WindowManager.LayoutParams(
+                dp(300), WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                        | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                PixelFormat.TRANSLUCENT);
+        params.gravity = Gravity.TOP | Gravity.END;
+        params.x = dp(10);
+        params.y = dp(92);
+        attachDragHandler(header, params);
+        overlayView = card;
+        windowManager.addView(card, params);
+        getSharedPreferences("active_ride", MODE_PRIVATE).edit()
+                .putBoolean("overlay_enabled", true).apply();
+        refreshOverlay();
+    }
+
+    private void attachDragHandler(View handle, WindowManager.LayoutParams params) {
+        handle.setOnTouchListener(new View.OnTouchListener() {
+            float downX, downY;
+            int startX, startY;
+            @Override public boolean onTouch(View view, MotionEvent event) {
+                if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                    downX = event.getRawX(); downY = event.getRawY();
+                    startX = params.x; startY = params.y;
+                    return true;
+                }
+                if (event.getAction() == MotionEvent.ACTION_MOVE && overlayView != null) {
+                    params.x = Math.max(0, startX - Math.round(event.getRawX() - downX));
+                    params.y = Math.max(0, startY + Math.round(event.getRawY() - downY));
+                    windowManager.updateViewLayout(overlayView, params);
+                    return true;
+                }
+                return event.getAction() == MotionEvent.ACTION_UP;
+            }
+        });
+    }
+
+    private void refreshOverlay() {
+        if (overlayView == null || overlayTitle == null) return;
+        overlayTitle.setText("RIDEBUDDY · " + tripCode);
+        overlayDestination.setText("TO " + (destinationTitle == null ? "Destination" : destinationTitle)
+                + "  ·  " + formatDuration(Math.max(0, expiresAt - System.currentTimeMillis())) + " LEFT");
+        overlayRiders.setText(buildOverlayRiderBoard());
+        String alerts = buildOverlayAlerts();
+        if (!overlayStopsSummary.isBlank()) alerts = alerts.isBlank()
+                ? overlayStopsSummary : alerts + "\n" + overlayStopsSummary;
+        overlayEvents.setText(alerts);
+        overlayEvents.setVisibility(alerts.isBlank() ? View.GONE : View.VISIBLE);
+    }
+
+    private String buildOverlayRiderBoard() {
+        List<RiderProgress> progress = new ArrayList<>();
+        Map<String, RiderState> states = new HashMap<>();
+        if (latestLocation != null) progress.add(new RiderProgress(riderName + " (you)",
+                distanceToDestinationKm(latestLocation.getLatitude(), latestLocation.getLongitude())));
+        for (RiderState rider : riders.values()) {
+            if (!Double.isNaN(rider.lat) && !Double.isNaN(rider.lng)) {
+                String name = rider.name == null ? "Rider" : rider.name;
+                progress.add(new RiderProgress(name, distanceToDestinationKm(rider.lat, rider.lng)));
+                states.put(name, rider);
+            }
+        }
+        if (progress.isEmpty()) return "Waiting for live positions…";
+        progress.sort(Comparator.comparingDouble(item -> item.distanceToDestinationKm));
+        double leader = progress.get(0).distanceToDestinationKm;
+        StringBuilder board = new StringBuilder();
+        int count = Math.min(progress.size(), 6);
+        for (int i = 0; i < count; i++) {
+            RiderProgress item = progress.get(i);
+            if (i > 0) board.append('\n');
+            board.append(i + 1).append("  ").append(item.name).append("  ");
+            if (i == 0) board.append("LEAD");
+            else board.append(String.format(Locale.getDefault(), "%.1f km behind",
+                    Math.max(0, item.distanceToDestinationKm - leader)));
+            RiderState state = states.get(item.name);
+            if (state != null) board.append("  ·  ").append(riderMotionState(state));
+            else if (latestLocation != null) board.append("  ·  ")
+                    .append(latestLocation.hasSpeed() && latestLocation.getSpeed() >= .8f
+                            ? Math.round(latestLocation.getSpeed() * 3.6f) + " km/h" : "STOPPED");
+        }
+        return board.toString();
+    }
+
+    private String riderMotionState(RiderState rider) {
+        long age = System.currentTimeMillis() - rider.updatedAt;
+        if (age > 60_000) return "NO SIGNAL";
+        if (!rider.safetyType.isBlank()) return rider.safetyType.toUpperCase(Locale.US);
+        return rider.speed >= .8 ? Math.round(rider.speed * 3.6) + " km/h" : "STOPPED";
+    }
+
+    private String buildOverlayAlerts() {
+        StringBuilder alerts = new StringBuilder();
+        long now = System.currentTimeMillis();
+        for (RiderState rider : riders.values()) {
+            String message = "";
+            if (!rider.safetyType.isBlank()) message = "⚠ " + rider.name + " · "
+                    + rider.safetyType.toUpperCase(Locale.US);
+            else if (now - rider.updatedAt > 60_000) message = "⚠ " + rider.name + " · SIGNAL LOST";
+            if (!message.isBlank()) {
+                if (alerts.length() > 0) alerts.append('\n');
+                alerts.append(message);
+            }
+        }
+        return alerts.toString();
+    }
+
+    private TextView overlayText(String text, int sp, int color, boolean bold) {
+        TextView view = new TextView(this);
+        view.setText(text);
+        view.setTextSize(sp);
+        view.setTextColor(color);
+        if (bold) view.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        return view;
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    private void hideRideOverlay(boolean rememberDisabled) {
+        if (overlayView != null && windowManager != null) {
+            try { windowManager.removeView(overlayView); } catch (Exception ignored) { }
+        }
+        overlayView = null;
+        overlayTitle = null;
+        overlayDestination = null;
+        overlayRiders = null;
+        overlayEvents = null;
+        if (rememberDisabled) getSharedPreferences("active_ride", MODE_PRIVATE).edit()
+                .putBoolean("overlay_enabled", false).apply();
     }
 
     private String riderCountText() {
@@ -408,6 +635,7 @@ public final class RideLocationService extends Service implements LocationListen
     }
 
     private void requestStop(String reason) {
+        hideRideOverlay(true);
         if (cloudLocation != null) cloudLocation.removeValue();
         if (cloudLocationsRoot != null && cloudRiderListener != null) {
             cloudLocationsRoot.removeEventListener(cloudRiderListener);
@@ -447,6 +675,7 @@ public final class RideLocationService extends Service implements LocationListen
 
     @Override
     public void onDestroy() {
+        hideRideOverlay(false);
         handler.removeCallbacksAndMessages(null);
         if (locationManager != null) locationManager.removeUpdates(this);
         if (cloudLocationsRoot != null && cloudRiderListener != null) {

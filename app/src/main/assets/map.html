@@ -166,7 +166,7 @@
     <div class="route-progress"><div class="route-progress-head"><span><strong id="routeRemaining">—</strong> remaining</span><span>ETA <strong id="routeEta">—</strong></span><span><strong id="routePercent">0%</strong></span></div><div class="progress-track"><div class="progress-fill" id="routeProgressFill"></div></div><div class="next-turn" id="nextTurn">Calculating route progress…</div></div>
     <div class="rider-alerts" id="riderAlerts"></div>
     <div class="safety-banner" id="safetyBanner"><strong id="safetyTitle">Safety alert</strong><small id="safetyDetail"></small><button id="acknowledgeSafety">I SEE THIS</button></div>
-    <div class="telemetry-foot"><span class="rider-count" id="telemetryRiders">1 rider live</span><div><button class="race-action safety-button" id="openSafety">SAFETY</button> <button class="race-action" id="organizerManage" style="display:none">MANAGE</button> <button class="race-action" id="telemetryShare">SHARE</button> <button class="race-action end" id="telemetryEnd">END</button></div></div>
+    <div class="telemetry-foot"><span class="rider-count" id="telemetryRiders">1 rider live</span><div><button class="race-action" id="rideOverlay">HUD</button> <button class="race-action safety-button" id="openSafety">SAFETY</button> <button class="race-action" id="organizerManage" style="display:none">MANAGE</button> <button class="race-action" id="telemetryShare">SHARE</button> <button class="race-action end" id="telemetryEnd">END</button></div></div>
   </section>
   <div class="modal center" id="welcomeModal" style="display:flex">
     <div class="modal-card">
@@ -666,6 +666,13 @@
     document.getElementById('leaveTrip').onclick = openEndRide;
     document.getElementById('telemetryEnd').onclick = openEndRide;
     document.getElementById('telemetryShare').onclick = () => RideBuddyApi.shareTrip(activeTripMode, activeTripCode);
+    document.getElementById('rideOverlay').onclick = () => RideBuddyApi.toggleRideOverlay();
+    window.onOverlayState = enabled => {
+      const active = enabled === true || enabled === 'true';
+      const button = document.getElementById('rideOverlay');
+      button.textContent = active ? 'HUD ON' : 'HUD';
+      button.style.background = active ? '#ffffff' : '';
+    };
     document.getElementById('openSafety').onclick = () => safetyModal.style.display = 'flex';
     document.getElementById('closeSafety').onclick = () => safetyModal.style.display = 'none';
     document.getElementById('sendSos').onclick = () => {
