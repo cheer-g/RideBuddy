@@ -108,6 +108,7 @@ public final class RideLocationService extends Service implements LocationListen
         double lng;
         double speed;
         boolean staleAlerted;
+        boolean disconnected;
         String safetyAlertId = "";
         String safetyType = "";
     }
@@ -147,9 +148,12 @@ public final class RideLocationService extends Service implements LocationListen
         RideLocationService service = instance;
         if (service == null) return;
         service.handler.post(() -> {
-            RiderState removed = service.riders.remove(riderId);
-            if (removed != null) service.sendRiderAlert(removed,
-                    removed.name + " stopped sharing location");
+            RiderState rider = service.riders.get(riderId);
+            if (rider != null) {
+                rider.disconnected = true;
+                service.sendRiderAlert(rider, rider.name + " lost connection · last seen "
+                        + service.formatLastSeen(System.currentTimeMillis() - rider.updatedAt));
+            }
             service.refreshNotification();
         });
     }
@@ -286,6 +290,7 @@ public final class RideLocationService extends Service implements LocationListen
         rider.lat = value.optDouble("lat", Double.NaN);
         rider.lng = value.optDouble("lng", Double.NaN);
         rider.speed = value.optDouble("speed", 0);
+        rider.disconnected = false;
         String alertId = value.optString("safetyAlertId", "");
         String safetyType = value.optString("safetyType", "");
         rider.safetyType = safetyType;
@@ -314,7 +319,6 @@ public final class RideLocationService extends Service implements LocationListen
     }
 
     private Notification buildNotification(String status) {
-        pruneStaleRiders();
         Intent openApp = new Intent(this, MainActivity.class);
         PendingIntent appIntent = PendingIntent.getActivity(this, 1, openApp,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
@@ -507,7 +511,7 @@ public final class RideLocationService extends Service implements LocationListen
 
     private String riderMotionState(RiderState rider) {
         long age = System.currentTimeMillis() - rider.updatedAt;
-        if (age > 60_000) return "NO SIGNAL";
+        if (rider.disconnected || age > 60_000) return "LAST SEEN " + formatLastSeen(age);
         if (!rider.safetyType.isBlank()) return rider.safetyType.toUpperCase(Locale.US);
         return rider.speed >= .8 ? Math.round(rider.speed * 3.6) + " km/h" : "STOPPED";
     }
@@ -519,7 +523,10 @@ public final class RideLocationService extends Service implements LocationListen
             String message = "";
             if (!rider.safetyType.isBlank()) message = "⚠ " + rider.name + " · "
                     + rider.safetyType.toUpperCase(Locale.US);
-            else if (now - rider.updatedAt > 60_000) message = "⚠ " + rider.name + " · SIGNAL LOST";
+            else if (rider.disconnected || now - rider.updatedAt > 60_000) {
+                message = "⚠ " + rider.name + " · SIGNAL LOST · LAST SEEN "
+                        + formatLastSeen(now - rider.updatedAt).toUpperCase(Locale.US);
+            }
             if (!message.isBlank()) {
                 if (alerts.length() > 0) alerts.append('\n');
                 alerts.append(message);
@@ -541,6 +548,16 @@ public final class RideLocationService extends Service implements LocationListen
         return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
+    private String formatLastSeen(long ageMillis) {
+        long seconds = Math.max(0, ageMillis / 1000);
+        if (seconds < 10) return "just now";
+        if (seconds < 60) return seconds + "s ago";
+        long minutes = seconds / 60;
+        if (minutes < 60) return minutes + "m " + (seconds % 60) + "s ago";
+        long hours = minutes / 60;
+        return hours + "h " + (minutes % 60) + "m ago";
+    }
+
     private void hideRideOverlay(boolean rememberDisabled) {
         if (overlayView != null && windowManager != null) {
             try { windowManager.removeView(overlayView); } catch (Exception ignored) { }
@@ -558,28 +575,26 @@ public final class RideLocationService extends Service implements LocationListen
         int attention = 0;
         long now = System.currentTimeMillis();
         for (RiderState rider : riders.values()) {
-            if (now - rider.updatedAt > 60_000 || rider.accuracy > 50) attention++;
+            if (rider.disconnected || now - rider.updatedAt > 60_000 || rider.accuracy > 50) attention++;
         }
         int total = riders.size() + 1;
         String text = total + (total == 1 ? " rider" : " riders");
         return attention > 0 ? text + " · " + attention + " need attention" : text;
     }
 
-    private void pruneStaleRiders() {
-        long staleBefore = System.currentTimeMillis() - 120_000;
-        riders.entrySet().removeIf(entry -> entry.getValue().updatedAt < staleBefore);
-    }
-
     private String buildRiderStandings() {
         List<RiderProgress> progress = new ArrayList<>();
+        Map<String, RiderState> states = new HashMap<>();
         if (latestLocation != null) {
             progress.add(new RiderProgress(riderName + " (you)", distanceToDestinationKm(
                     latestLocation.getLatitude(), latestLocation.getLongitude())));
         }
         for (RiderState rider : riders.values()) {
             if (!Double.isNaN(rider.lat) && !Double.isNaN(rider.lng)) {
-                progress.add(new RiderProgress(rider.name == null ? "Rider" : rider.name,
+                String name = rider.name == null ? "Rider" : rider.name;
+                progress.add(new RiderProgress(name,
                         distanceToDestinationKm(rider.lat, rider.lng)));
+                states.put(name, rider);
             }
         }
         if (progress.isEmpty()) return "RIDERS\nWaiting for live positions…";
@@ -592,6 +607,12 @@ public final class RideLocationService extends Service implements LocationListen
             if (index == 0) board.append("LEAD");
             else board.append(String.format(Locale.getDefault(), "≈%.1f km behind",
                     Math.max(0, rider.distanceToDestinationKm - leaderDistance)));
+            RiderState state = states.get(rider.name);
+            if (state != null && (state.disconnected
+                    || System.currentTimeMillis() - state.updatedAt > 60_000)) {
+                board.append(" · LAST SEEN ").append(formatLastSeen(
+                        System.currentTimeMillis() - state.updatedAt).toUpperCase(Locale.US));
+            }
             if (index < progress.size() - 1) board.append('\n');
         }
         return board.toString();
@@ -608,7 +629,8 @@ public final class RideLocationService extends Service implements LocationListen
         for (RiderState rider : riders.values()) {
             if (now - rider.updatedAt > 60_000 && !rider.staleAlerted) {
                 rider.staleAlerted = true;
-                sendRiderAlert(rider, rider.name + " has not updated for over a minute");
+                sendRiderAlert(rider, rider.name + " signal lost · last seen "
+                        + formatLastSeen(now - rider.updatedAt));
             }
         }
     }

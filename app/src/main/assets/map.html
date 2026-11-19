@@ -97,9 +97,10 @@
     .stat { padding:8px 6px; border-top:1px solid #ffffff25; text-align:center; }
     .stat strong { display:block; font-size:16px; }
     .stat small { color:#9fb0aa; font-size:9px; font-weight:800; letter-spacing:.6px; }
-    .telemetry-foot { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:7px; }
+    .telemetry-foot { display:flex; flex-wrap:wrap; align-items:center; gap:7px; margin-top:9px; }
+    .telemetry-actions { display:grid; grid-template-columns:repeat(auto-fit,minmax(58px,1fr)); gap:6px; width:100%; }
     .rider-count { color:#c6d2ce; font-size:11px; }
-    .race-action { border:0; padding:9px 12px; border-radius:10px; background:var(--accent); color:var(--ink); font-size:11px; font-weight:900; }
+    .race-action { min-width:0; border:0; padding:10px 5px; border-radius:10px; background:var(--accent); color:var(--ink); font-size:10px; font-weight:900; white-space:nowrap; }
     .race-action.end { background:#ff625a; color:white; }
     .rider-alerts { display:none; margin-top:8px; padding:8px 10px; border-left:3px solid #ff625a; background:#ff625a18; color:#ffd4d1; font-size:11px; font-weight:750; }
     .member-row { display:flex; align-items:center; gap:8px; padding:10px 0; border-bottom:1px solid #d8dfdc; }
@@ -166,7 +167,7 @@
     <div class="route-progress"><div class="route-progress-head"><span><strong id="routeRemaining">—</strong> remaining</span><span>ETA <strong id="routeEta">—</strong></span><span><strong id="routePercent">0%</strong></span></div><div class="progress-track"><div class="progress-fill" id="routeProgressFill"></div></div><div class="next-turn" id="nextTurn">Calculating route progress…</div></div>
     <div class="rider-alerts" id="riderAlerts"></div>
     <div class="safety-banner" id="safetyBanner"><strong id="safetyTitle">Safety alert</strong><small id="safetyDetail"></small><button id="acknowledgeSafety">I SEE THIS</button></div>
-    <div class="telemetry-foot"><span class="rider-count" id="telemetryRiders">1 rider live</span><div><button class="race-action" id="rideOverlay">HUD</button> <button class="race-action safety-button" id="openSafety">SAFETY</button> <button class="race-action" id="organizerManage" style="display:none">MANAGE</button> <button class="race-action" id="telemetryShare">SHARE</button> <button class="race-action end" id="telemetryEnd">END</button></div></div>
+    <div class="telemetry-foot"><span class="rider-count" id="telemetryRiders">1 rider live</span><div class="telemetry-actions"><button class="race-action" id="rideOverlay">RIDE HUD</button><button class="race-action safety-button" id="openSafety">SAFETY</button><button class="race-action" id="organizerManage" style="display:none">MANAGE</button><button class="race-action" id="telemetryShare">SHARE</button><button class="race-action end" id="telemetryEnd">END</button></div></div>
   </section>
   <div class="modal center" id="welcomeModal" style="display:flex">
     <div class="modal-card">
@@ -670,7 +671,7 @@
     window.onOverlayState = enabled => {
       const active = enabled === true || enabled === 'true';
       const button = document.getElementById('rideOverlay');
-      button.textContent = active ? 'HUD ON' : 'HUD';
+      button.textContent = active ? 'HUD ON' : 'RIDE HUD';
       button.style.background = active ? '#ffffff' : '';
     };
     document.getElementById('openSafety').onclick = () => safetyModal.style.display = 'flex';
@@ -889,11 +890,15 @@
     }
     window.onRiderLeft = riderId => {
       const marker = riderMarkers.get(riderId);
-      if (marker) showRiderAlert((marker.riderData?.name || 'A rider') + ' stopped sharing location');
-      if (marker) marker.remove();
-      riderMarkers.delete(riderId);
+      if (marker) {
+        marker.riderData = {...(marker.riderData || {}), offline:true};
+        const name = marker.riderData.name || 'A rider';
+        showRiderAlert(name + ' lost connection · last seen just now');
+        const element = marker.getElement();
+        if (element) element.style.borderColor = '#8b9893';
+      }
       safetyAlerts.delete(riderId); renderSafetyBanner();
-      document.getElementById('telemetryRiders').textContent = (riderMarkers.size + 1) + ' riders live';
+      document.getElementById('telemetryRiders').textContent = (riderMarkers.size + 1) + ' riders · checking signals';
     };
     setInterval(() => {
       const alerts = [];
@@ -901,7 +906,7 @@
         const age = Date.now() - marker.updatedAt, rider = marker.riderData || {};
         marker.setOpacity(age > 120000 ? .25 : age > 30000 ? .55 : 1);
         let status = 'Live';
-        if (age > 60000) { status = 'No update for ' + Math.floor(age / 1000) + 's'; alerts.push((rider.name || 'Rider') + ': signal lost'); }
+        if (rider.offline || age > 60000) { status = 'Last seen ' + formatLastSeen(age); alerts.push((rider.name || 'Rider') + ': signal lost · last seen ' + formatLastSeen(age)); }
         else if (Number(rider.accuracy) > 50) { status = 'Poor GPS ±' + Math.round(rider.accuracy) + 'm'; alerts.push((rider.name || 'Rider') + ': poor GPS'); }
         const routeDistance = distanceFromRoute(marker.getLatLng());
         if (routeDistance > 500) { status = Math.round(routeDistance) + 'm off route'; alerts.push((rider.name || 'Rider') + ': off route'); }
@@ -993,6 +998,14 @@
       return 2*r*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));
     }
     function cardinal(deg) { return ['N','NE','E','SE','S','SW','W','NW'][Math.round(deg/45)%8]; }
+    function formatLastSeen(ageMs) {
+      const seconds=Math.max(0,Math.floor(ageMs/1000));
+      if (seconds<10) return 'just now';
+      if (seconds<60) return seconds+'s ago';
+      const minutes=Math.floor(seconds/60);
+      if (minutes<60) return minutes+'m '+(seconds%60)+'s ago';
+      return Math.floor(minutes/60)+'h '+(minutes%60)+'m ago';
+    }
     function hashCode(value) { let hash=0; for(let i=0;i<value.length;i++) hash=((hash<<5)-hash)+value.charCodeAt(i)|0; return hash; }
     function showToast(message) {
       const toast = document.getElementById('toast');
