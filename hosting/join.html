@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Join a RideBuddy trip</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:#10231d;color:#10231d;font-family:system-ui,sans-serif}.card{width:min(430px,100%);padding:30px;border-radius:28px;background:#f7f4ec;box-shadow:0 22px 60px #0008}.mark{display:grid;place-items:center;width:58px;height:58px;border-radius:19px;background:#f7b731;font-size:27px;font-weight:900}h1{margin:20px 0 8px;font-size:28px}p{color:#65756f;line-height:1.5}.code{margin:22px 0;padding:16px;border-radius:16px;background:white;text-align:center;font-size:27px;font-weight:900;letter-spacing:5px}a{display:block;padding:15px;border-radius:15px;background:#f7b731;color:#10231d;text-align:center;text-decoration:none;font-weight:900}.note{font-size:12px;text-align:center}
+  </style>
+</head>
+<body><main class="card"><div class="mark">RB</div><h1>Join the ride</h1><p>Open RideBuddy to join this shared trip and see the destination and riders.</p><div class="code" id="code">------</div><a id="open" href="#">OPEN RIDEBUDDY</a><p class="note">If RideBuddy is installed, the app should open automatically.</p></main>
+<script>
+  const p=new URLSearchParams(location.search),code=(p.get('code')||'').toUpperCase(),mode=p.get('mode')==='nearby'?'nearby':'cloud';
+  document.getElementById('code').textContent=code||'------';
+  const deep='ridebuddy://join?mode='+encodeURIComponent(mode)+'&code='+encodeURIComponent(code);
+  document.getElementById('open').href=deep;
+</script></body></html>

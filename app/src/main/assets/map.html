@@ -1,0 +1,954 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>RideBuddy</title>
+  <link rel="preconnect" href="https://tile.openstreetmap.org">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    :root { --ink:#10231d; --cream:#f7f4ec; --accent:#f7b731; --muted:#65756f; }
+    * { box-sizing:border-box; }
+    html, body, #map { height:100%; margin:0; }
+    body { font-family:Inter,Roboto,system-ui,sans-serif; background:var(--cream); color:var(--ink); }
+    #map { z-index:1; }
+    .top { position:fixed; z-index:500; top:0; left:0; right:0; padding:max(14px,env(safe-area-inset-top)) 14px 0; pointer-events:none; }
+    .brand-row { display:flex; align-items:center; justify-content:space-between; margin:0 5px 10px; }
+    .brand { display:flex; align-items:center; gap:9px; color:white; font-weight:800; letter-spacing:.2px; text-shadow:0 1px 8px #0008; }
+    .brand-mark { display:grid; place-items:center; width:32px; height:32px; border-radius:11px; color:var(--ink); background:var(--accent); box-shadow:0 5px 16px #0003; }
+    .riders-btn { pointer-events:auto; border:0; height:38px; padding:0 13px; border-radius:13px; background:#fffffff2; color:var(--ink); font-weight:800; box-shadow:0 5px 16px #0003; }
+    .search { display:flex; align-items:center; gap:10px; height:56px; padding:0 10px 0 17px; border-radius:18px; background:#fffffff5; box-shadow:0 9px 30px #10231d35; pointer-events:auto; }
+    .search input { min-width:0; flex:1; border:0; outline:0; font-size:16px; color:var(--ink); background:transparent; }
+    .search button { border:0; width:40px; height:40px; border-radius:13px; background:var(--ink); color:white; font-size:20px; }
+    #results { display:none; margin-top:8px; overflow:hidden; border-radius:16px; background:#fffffff8; box-shadow:0 10px 28px #10231d30; pointer-events:auto; }
+    .result { padding:13px 15px; border-bottom:1px solid #dce2df; cursor:pointer; }
+    .result:last-child { border:0; }
+    .result strong { display:block; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .result span { display:block; margin-top:3px; font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .locate { position:fixed; z-index:500; right:14px; bottom:130px; width:50px; height:50px; border:0; border-radius:17px; font-size:22px; color:var(--ink); background:white; box-shadow:0 7px 24px #10231d3d; }
+    .sheet { position:fixed; z-index:500; left:12px; right:12px; bottom:max(12px,env(safe-area-inset-bottom)); display:none; align-items:center; gap:12px; min-height:96px; padding:15px; border-radius:22px; background:var(--ink); color:white; box-shadow:0 12px 38px #10231d66; }
+    .trip { min-width:0; flex:1; }
+    .trip small { color:#b9c6c1; font-weight:600; }
+    .trip h2 { margin:3px 0; font-size:17px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .trip p { margin:0; font-size:13px; color:#d9e1de; }
+    .go { border:0; flex:0 0 64px; height:64px; border-radius:20px; background:var(--accent); color:var(--ink); font-weight:900; font-size:14px; }
+    .toast { position:fixed; z-index:700; left:50%; bottom:28px; transform:translateX(-50%); display:none; max-width:85%; padding:11px 16px; border-radius:20px; background:#10231dea; color:white; font-size:13px; text-align:center; }
+    .trip-live { position:fixed; z-index:510; left:14px; bottom:126px; display:none; align-items:center; gap:9px; padding:9px 10px 9px 13px; border-radius:15px; background:white; color:var(--ink); box-shadow:0 7px 24px #10231d3d; }
+    .trip-live span { font-size:12px; line-height:1.2; }
+    .trip-live strong { display:block; font-size:14px; letter-spacing:1.2px; }
+    .trip-live button { border:0; padding:8px 10px; border-radius:10px; font-weight:800; color:var(--ink); background:var(--accent); }
+    .modal { position:fixed; z-index:900; inset:0; display:none; align-items:flex-end; padding:14px; background:#07130f99; backdrop-filter:blur(4px); }
+    .modal-card { width:100%; padding:20px; border-radius:25px; background:var(--cream); box-shadow:0 18px 50px #0007; }
+    .modal-head { display:flex; align-items:center; justify-content:space-between; }
+    .modal h2 { margin:0; font-size:22px; }
+    .modal .close { border:0; width:34px; height:34px; border-radius:11px; background:#dfe5e2; font-size:19px; }
+    .mode-grid { display:grid; grid-template-columns:1fr 1fr; gap:9px; margin:17px 0; }
+    .mode { padding:13px; border:2px solid transparent; border-radius:16px; background:white; text-align:left; color:var(--ink); }
+    .mode.active { border-color:var(--accent); background:#fff8e5; }
+    .mode strong,.mode small { display:block; }
+    .mode small { margin-top:3px; color:var(--muted); }
+    .field { width:100%; height:49px; margin-bottom:10px; padding:0 14px; border:1px solid #ccd5d1; border-radius:14px; outline:0; background:white; font-size:15px; }
+    .actions { display:grid; grid-template-columns:1fr 1fr; gap:9px; }
+    .primary,.secondary { height:49px; border:0; border-radius:14px; font-weight:900; }
+    .primary { background:var(--ink); color:white; }
+    .secondary { background:var(--accent); color:var(--ink); }
+    .hint { min-height:18px; margin:10px 2px 0; color:var(--muted); font-size:12px; }
+    .rider-bubble { display:grid!important; place-items:center; width:34px!important; height:34px!important; margin:-17px!important; border:3px solid white; border-radius:50%; color:white; font-weight:900; box-shadow:0 3px 12px #0006; }
+    body.welcome-open #map,body.welcome-open .top,body.welcome-open .locate,body.welcome-open .sheet { filter:blur(8px); pointer-events:none; }
+    .modal.center { align-items:center; }
+    .choice-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:22px; }
+    .choice { min-height:128px; padding:17px; border:0; border-radius:20px; text-align:left; background:white; color:var(--ink); box-shadow:0 5px 18px #10231d18; }
+    .choice span { display:block; margin-bottom:12px; font-size:27px; }
+    .choice strong,.choice small { display:block; }
+    .choice small { margin-top:5px; color:var(--muted); line-height:1.35; }
+    .history-open { width:100%; height:45px; margin-top:12px; border:0; border-radius:14px; background:#e3e9e6; color:var(--ink); font-weight:850; }
+    .history-list { max-height:55vh; overflow:auto; }
+    .history-entry { margin-top:10px; padding:13px; border-radius:15px; background:white; }
+    .history-entry h3 { margin:2px 0 6px; font-size:15px; }
+    .history-entry p { margin:3px 0; color:var(--muted); font-size:12px; }
+    .summary { display:none; margin:12px 0; padding:15px; border-radius:16px; background:white; }
+    .summary small { color:var(--muted); font-weight:800; }
+    .summary h3 { margin:4px 0 10px; }
+    .summary p { margin:4px 0; font-size:13px; }
+    .inline-search { display:flex; gap:8px; margin-bottom:9px; }
+    .inline-search .field { margin:0; }
+    .inline-search button { flex:0 0 49px; border:0; border-radius:14px; background:var(--ink); color:white; font-size:20px; }
+    .inline-results { display:none; max-height:190px; margin:-1px 0 10px; overflow:auto; border:1px solid #d7dedb; border-radius:14px; background:white; }
+    .selected-destination { display:none; margin:0 0 10px; padding:11px 13px; border-radius:13px; background:#fff4d7; font-size:13px; font-weight:800; }
+    #map { transition:height .3s ease; }
+    body.ride-active #map { height:58%; }
+    body.ride-active .sheet,body.ride-active .trip-live { display:none!important; }
+    .telemetry { position:fixed; z-index:520; left:0; right:0; bottom:0; height:42%; display:none; padding:13px 15px max(13px,env(safe-area-inset-bottom)); overflow:auto; background:linear-gradient(145deg,#07110e,#122a22); color:white; box-shadow:0 -9px 30px #07110e66; }
+    body.ride-active .telemetry { display:block; }
+    .telemetry-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+    .live-flag { color:#ff5349; font-size:11px; font-weight:900; letter-spacing:1.5px; }
+    .telemetry h2 { max-width:68vw; margin:3px 0 0; overflow:hidden; font-size:17px; white-space:nowrap; text-overflow:ellipsis; }
+    .telemetry-code { padding:7px 9px; border:1px solid #ffffff30; border-radius:10px; font-size:11px; color:#b9c6c1; }
+    .telemetry-main { display:grid; grid-template-columns:1.25fr .75fr; gap:10px; margin-top:10px; }
+    .speed-card { display:flex; align-items:flex-end; min-height:78px; padding:8px 13px; border-left:4px solid var(--accent); background:#ffffff0b; }
+    .speed-value { font-size:54px; font-weight:950; line-height:.85; letter-spacing:-3px; }
+    .speed-unit { margin:0 0 4px 8px; color:#aebcb7; font-size:12px; font-weight:800; }
+    .heading-card { display:grid; place-items:center; padding:7px; border-radius:13px; background:#ffffff0b; text-align:center; }
+    .heading-arrow { color:var(--accent); font-size:27px; line-height:1; transition:transform .25s; }
+    .heading-card strong { font-size:13px; }
+    .stats-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:7px; margin-top:9px; }
+    .stat { padding:8px 6px; border-top:1px solid #ffffff25; text-align:center; }
+    .stat strong { display:block; font-size:16px; }
+    .stat small { color:#9fb0aa; font-size:9px; font-weight:800; letter-spacing:.6px; }
+    .telemetry-foot { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:7px; }
+    .rider-count { color:#c6d2ce; font-size:11px; }
+    .race-action { border:0; padding:9px 12px; border-radius:10px; background:var(--accent); color:var(--ink); font-size:11px; font-weight:900; }
+    .race-action.end { background:#ff625a; color:white; }
+    .rider-alerts { display:none; margin-top:8px; padding:8px 10px; border-left:3px solid #ff625a; background:#ff625a18; color:#ffd4d1; font-size:11px; font-weight:750; }
+    .member-row { display:flex; align-items:center; gap:8px; padding:10px 0; border-bottom:1px solid #d8dfdc; }
+    .member-row span { min-width:0; flex:1; }
+    .member-row strong,.member-row small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .member-row small { color:var(--muted); }
+    .member-row button { border:0; padding:8px; border-radius:9px; background:#e4e9e7; font-size:10px; font-weight:800; }
+    .route-progress { margin-top:8px; padding:9px 10px; border-radius:12px; background:#ffffff0b; }
+    .route-progress-head { display:flex; justify-content:space-between; gap:12px; font-size:11px; }
+    .route-progress-head strong { color:var(--accent); }
+    .progress-track { height:4px; margin:7px 0; overflow:hidden; border-radius:3px; background:#ffffff20; }
+    .progress-fill { width:0; height:100%; border-radius:3px; background:var(--accent); transition:width .4s; }
+    .next-turn { overflow:hidden; color:#c4d0cc; font-size:11px; white-space:nowrap; text-overflow:ellipsis; }
+    .stop-actions { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; margin-top:8px; }
+    .stop-actions button { border:0; padding:10px 5px; border-radius:11px; background:#e8eeeb; font-size:10px; font-weight:850; }
+    .route-stop-icon { display:grid; place-items:center; width:36px!important; height:36px!important; border-radius:50%; background:#fff; border:2px solid #10231d; box-shadow:0 3px 10px #0004; font-size:19px; }
+    .safety-button { background:#ff625a; color:white; }
+    .safety-banner { display:none; margin-top:8px; padding:10px; border-radius:12px; background:#ff625a; color:white; }
+    .safety-banner strong,.safety-banner small { display:block; }
+    .safety-banner button { margin-top:8px; border:0; padding:8px 10px; border-radius:9px; background:white; color:#9f211b; font-weight:900; }
+    .safety-actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:16px; }
+    .safety-actions button { min-height:78px; border:0; border-radius:17px; color:white; font-size:16px; font-weight:950; }
+    .leaflet-control-attribution { font-size:9px; }
+    .pin { width:24px!important; height:24px!important; margin:-12px!important; border:4px solid white; border-radius:50% 50% 50% 0; background:var(--accent); box-shadow:0 3px 9px #0005; transform:rotate(-45deg); }
+    .me { width:20px!important; height:20px!important; margin:-10px!important; border:4px solid white; border-radius:50%; background:#3975e8; box-shadow:0 0 0 5px #3975e844; }
+  </style>
+</head>
+<body class="welcome-open">
+  <div id="map"></div>
+  <div class="top">
+    <div class="brand-row"><div class="brand"><div class="brand-mark">↗</div> RideBuddy</div><button class="riders-btn" id="ridersBtn">● Ride group</button></div>
+    <form class="search" id="searchForm">
+      <input id="query" autocomplete="off" placeholder="Where are you riding to?" aria-label="Search destination">
+      <button type="submit" aria-label="Search">⌕</button>
+    </form>
+    <div id="results"></div>
+  </div>
+  <button class="locate" id="locate" aria-label="Use my location">◎</button>
+  <div class="trip-live" id="tripLive"><span><small id="liveMode">NEARBY RIDE</small><strong id="liveCode">—</strong><small id="liveRemaining"></small></span><button id="shareTrip">SHARE</button><button id="leaveTrip">LEAVE</button></div>
+  <section class="sheet" id="sheet">
+    <div class="trip"><small>DESTINATION</small><h2 id="destination">Select a place</h2><p id="tripMeta">Ready to route</p></div>
+    <button class="go" id="go">GO</button>
+  </section>
+  <div class="toast" id="toast"></div>
+  <section class="telemetry" id="telemetry">
+    <div class="telemetry-head"><div><div class="live-flag">● LIVE RIDE</div><h2 id="telemetryDestination">Destination</h2></div><div class="telemetry-code">CODE <strong id="telemetryCode">—</strong></div></div>
+    <div class="telemetry-main">
+      <div class="speed-card"><span class="speed-value" id="liveSpeed">0</span><span class="speed-unit">KM/H</span></div>
+      <div class="heading-card"><span class="heading-arrow" id="headingArrow">↑</span><strong id="headingText">N</strong><small id="gpsAccuracy">GPS —</small></div>
+    </div>
+    <div class="stats-grid">
+      <div class="stat"><strong id="maxSpeed">0</strong><small>MAX KM/H</small></div>
+      <div class="stat"><strong id="avgSpeed">0</strong><small>AVG KM/H</small></div>
+      <div class="stat"><strong id="rideDistance">0.0</strong><small>DISTANCE KM</small></div>
+      <div class="stat"><strong id="rideElapsed">00:00</strong><small>ELAPSED</small></div>
+    </div>
+    <div class="route-progress"><div class="route-progress-head"><span><strong id="routeRemaining">—</strong> remaining</span><span>ETA <strong id="routeEta">—</strong></span><span><strong id="routePercent">0%</strong></span></div><div class="progress-track"><div class="progress-fill" id="routeProgressFill"></div></div><div class="next-turn" id="nextTurn">Calculating route progress…</div></div>
+    <div class="rider-alerts" id="riderAlerts"></div>
+    <div class="safety-banner" id="safetyBanner"><strong id="safetyTitle">Safety alert</strong><small id="safetyDetail"></small><button id="acknowledgeSafety">I SEE THIS</button></div>
+    <div class="telemetry-foot"><span class="rider-count" id="telemetryRiders">1 rider live</span><div><button class="race-action safety-button" id="openSafety">SAFETY</button> <button class="race-action" id="organizerManage" style="display:none">MANAGE</button> <button class="race-action" id="telemetryShare">SHARE</button> <button class="race-action end" id="telemetryEnd">END</button></div></div>
+  </section>
+  <div class="modal center" id="welcomeModal" style="display:flex">
+    <div class="modal-card">
+      <div class="modal-head"><div class="brand" style="color:var(--ink);text-shadow:none"><div class="brand-mark">↗</div> RideBuddy</div><button class="close" id="closeWelcome" aria-label="Back to ride" style="display:none">←</button></div>
+      <h2 style="margin-top:22px">Ready to ride?</h2>
+      <p style="color:var(--muted);margin:7px 0 0">Create a group ride or join your mates with an invitation code.</p>
+      <div class="choice-grid">
+        <button class="choice" id="welcomeCreate"><span>＋</span><strong>Create ride</strong><small>Choose a destination and sharing time.</small></button>
+        <button class="choice" id="welcomeJoin"><span>↗</span><strong>Join ride</strong><small>Preview a ride before sharing location.</small></button>
+      </div>
+      <button class="history-open" id="openHistory">RIDE HISTORY</button>
+    </div>
+  </div>
+  <div class="modal" id="tripModal">
+    <div class="modal-card">
+      <div class="modal-head"><h2>Create a ride</h2><button class="close" id="closeTrip" aria-label="Back">←</button></div>
+      <div class="mode-grid">
+        <button class="mode active" data-mode="nearby"><strong>Nearby Ride</strong><small>No server · about 100 m</small></button>
+        <button class="mode" data-mode="cloud"><strong>Connected Ride</strong><small>Mobile internet · any distance</small></button>
+      </div>
+      <input class="field" id="riderName" maxlength="24" placeholder="Your rider name">
+      <input class="field" id="riderPhone" type="tel" maxlength="18" placeholder="Phone number for rider alerts (optional)">
+      <form class="inline-search" id="createDestinationForm">
+        <input class="field" id="createDestinationQuery" autocomplete="off" placeholder="Search trip destination">
+        <button type="submit" aria-label="Search destination">⌕</button>
+      </form>
+      <div class="inline-results" id="createDestinationResults"></div>
+      <div class="selected-destination" id="selectedCreateDestination"></div>
+      <label for="tripEnd" style="display:block;margin:1px 3px 6px;font-size:12px;font-weight:800;color:var(--muted)">SHARE LOCATION UNTIL</label>
+      <input class="field" id="tripEnd" type="datetime-local">
+      <input class="field" id="creatorOdometerStart" type="number" min="0" step="0.1" inputmode="decimal" placeholder="Starting odometer (optional)">
+      <button class="primary" id="createTrip" style="width:100%">CREATE TRIP</button>
+      <div class="hint" id="tripHint">Nearby Ride works directly between nearby Android phones.</div>
+    </div>
+  </div>
+  <div class="modal center" id="joinModal">
+    <div class="modal-card">
+      <div class="modal-head"><h2>Join a ride</h2><button class="close" id="closeJoin" aria-label="Back">←</button></div>
+      <p style="color:var(--muted)">Enter the invitation code to preview the ride before sharing your location.</p>
+      <input class="field" id="joinCode" maxlength="6" autocapitalize="characters" placeholder="Six-character trip code">
+      <button class="primary" id="previewTrip" style="width:100%">VIEW RIDE</button>
+      <div class="summary" id="joinSummary">
+        <small>RIDE DESTINATION</small><h3 id="previewDestination">—</h3>
+        <p id="previewEnds">Ends —</p>
+        <input class="field" id="joinRiderName" maxlength="24" placeholder="Your rider name" style="margin-top:13px">
+        <input class="field" id="joinRiderPhone" type="tel" maxlength="18" placeholder="Phone number for rider alerts (optional)">
+        <label for="personalEnd" style="display:block;margin:1px 3px 6px;font-size:12px;font-weight:800;color:var(--muted)">SHARE MY LOCATION UNTIL</label>
+        <input class="field" id="personalEnd" type="datetime-local">
+        <input class="field" id="odometerStart" type="number" min="0" step="0.1" inputmode="decimal" placeholder="Starting odometer (optional)">
+        <button class="secondary" id="confirmJoin" style="width:100%">JOIN AND SHARE LOCATION</button>
+      </div>
+      <div class="hint" id="joinHint"></div>
+    </div>
+  </div>
+  <div class="modal center" id="historyModal">
+    <div class="modal-card">
+      <div class="modal-head"><h2>Ride history</h2><button class="close" id="closeHistory" aria-label="Back">←</button></div>
+      <div class="history-list" id="historyList"></div>
+      <button class="history-open" id="clearHistory">CLEAR HISTORY</button>
+    </div>
+  </div>
+  <div class="modal center" id="endModal">
+    <div class="modal-card">
+      <div class="modal-head"><h2>Finish this ride</h2><button class="close" id="closeEnd" aria-label="Back to ride">←</button></div>
+      <p id="endDestination" style="color:var(--muted)"></p>
+      <input class="field" id="odometerEnd" type="number" min="0" step="0.1" inputmode="decimal" placeholder="Ending odometer (optional)">
+      <button class="primary" id="finishRide" style="width:100%">END RIDE &amp; VIEW SUMMARY</button>
+      <div class="summary" id="rideSummary"></div>
+    </div>
+  </div>
+  <div class="modal center" id="safetyModal">
+    <div class="modal-card">
+      <div class="modal-head"><h2>Ride safety</h2><button class="close" id="closeSafety" aria-label="Back to ride">←</button></div>
+      <p style="color:var(--muted)">Your live position and status will be sent immediately to the ride group.</p>
+      <div class="safety-actions"><button id="sendSos" style="background:#d92f28">🆘<br>SOS</button><button id="sendBreakdown" style="background:#d78019">🔧<br>BREAKDOWN</button></div>
+      <button class="secondary" id="clearSafety" style="width:100%;margin-top:12px">I'M SAFE — CLEAR MY ALERT</button>
+      <div class="hint" id="safetyHint">Use SOS only when you need urgent help.</div>
+    </div>
+  </div>
+  <div class="modal center" id="organizerModal">
+    <div class="modal-card">
+      <div class="modal-head"><h2>Manage ride</h2><button class="close" id="closeOrganizer" aria-label="Back to ride">←</button></div>
+      <p style="color:var(--muted)">Organizer controls apply immediately to every connected rider.</p>
+      <button class="secondary" id="toggleJoinLock" style="width:100%;margin-bottom:10px">LOCK NEW RIDERS</button>
+      <label for="organizerEnd" style="display:block;margin:1px 3px 6px;font-size:12px;font-weight:800;color:var(--muted)">EXTEND RIDE UNTIL</label>
+      <div class="inline-search"><input class="field" id="organizerEnd" type="datetime-local"><button type="button" id="extendRide" style="font-size:11px;font-weight:900">SET</button></div>
+      <h3 style="margin:16px 0 4px">Riders</h3><div id="organizerMembers"></div>
+      <h3 style="margin:16px 0 4px">Route stops</h3>
+      <p style="margin:3px 0;color:var(--muted);font-size:12px">Add a marker at your current position.</p>
+      <div class="stop-actions"><button data-stop="regroup">🏁 REGROUP</button><button data-stop="fuel">⛽ FUEL</button><button data-stop="rest">☕ REST</button></div>
+      <div id="organizerStops"></div>
+      <button class="primary" id="endForEveryone" style="width:100%;margin-top:16px;background:#d9433c">END RIDE FOR EVERYONE</button>
+    </div>
+  </div>
+
+  <script>
+    const map = L.map('map', { zoomControl:false }).setView([12.9716, 77.5946], 12);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom:19, attribution:'© OpenStreetMap contributors'
+    }).addTo(map);
+    L.control.zoom({ position:'bottomleft' }).addTo(map);
+
+    const pinIcon = L.divIcon({ className:'pin', iconSize:[24,24] });
+    const meIcon = L.divIcon({ className:'me', iconSize:[20,20] });
+    let destination, destinationMarker, meMarker, routeLine, currentPosition, navigating = false, watchId;
+    let selectedTripMode = 'nearby', activeTripMode, activeTripCode, activeRiderId, activeExpiresAt;
+    let previewExpiresAt, previewDestination, pendingOdometerStart = -1;
+    let activeStartedAt, activeOdometerStart = -1, activeDestinationTitle, tripAlreadyEnded = false;
+    let telemetryDistanceKm = 0, telemetryMaxSpeed = 0, lastTelemetryPoint;
+    let isOrganizer = false, organizerJoinLocked = false, organizerMembers = [];
+    let routePoints = [], routeCumulative = [], routeTotalKm = 0, routeBaseDurationSec = 0, routeSteps = [], lastRerouteAt = 0;
+    let routeStopsData = [];
+    let localSafetyAlertId = '', displayedSafetyAlertId = '';
+    const safetyAlerts = new Map(), safetyAcknowledgements = new Map();
+    const routeStopMarkers = new Map();
+    const riderMarkers = new Map();
+    const results = document.getElementById('results');
+    const sheet = document.getElementById('sheet');
+    const meta = document.getElementById('tripMeta');
+
+    document.getElementById('searchForm').addEventListener('submit', event => {
+      event.preventDefault();
+      const query = document.getElementById('query').value.trim();
+      if (!query) return;
+      results.style.display = 'block';
+      results.innerHTML = '<div class="result"><strong>Searching…</strong><span>Looking across OpenStreetMap</span></div>';
+      RideBuddyApi.search(query);
+    });
+
+    window.onSearchResults = raw => {
+      const places = JSON.parse(raw);
+      results.innerHTML = '';
+      if (!places.length) {
+        results.innerHTML = '<div class="result"><strong>No places found</strong><span>Try a nearby landmark or city name</span></div>';
+        return;
+      }
+      places.forEach(place => {
+        const row = document.createElement('div');
+        row.className = 'result';
+        const parts = place.display_name.split(',');
+        const title = parts.shift();
+        row.innerHTML = '<strong></strong><span></span>';
+        row.querySelector('strong').textContent = title;
+        row.querySelector('span').textContent = parts.join(',').trim();
+        row.onclick = () => selectPlace(place, title);
+        results.appendChild(row);
+      });
+    };
+
+    function selectPlace(place, title) {
+      destination = { lat:Number(place.lat), lng:Number(place.lon), title };
+      if (destinationMarker) destinationMarker.remove();
+      destinationMarker = L.marker([destination.lat,destination.lng], { icon:pinIcon }).addTo(map);
+      destinationMarker.bindPopup('<b>' + escapeHtml(title) + '</b><br>' + escapeHtml(place.display_name)).openPopup();
+      results.style.display = 'none';
+      document.getElementById('query').value = place.display_name;
+      document.getElementById('destination').textContent = title;
+      const selected = document.getElementById('selectedCreateDestination');
+      selected.textContent = '📍 Destination: ' + title;
+      selected.style.display = 'block';
+      document.getElementById('createDestinationQuery').value = place.display_name;
+      document.getElementById('createDestinationResults').style.display = 'none';
+      sheet.style.display = 'flex';
+      const start = currentPosition || { lat:map.getCenter().lat, lng:map.getCenter().lng };
+      meta.textContent = currentPosition ? 'Calculating from your location…' : 'Calculating from map centre…';
+      RideBuddyApi.route(start.lng, start.lat, destination.lng, destination.lat);
+      map.setView([destination.lat,destination.lng], 14);
+    }
+
+    window.onRouteResult = raw => {
+      const data = JSON.parse(raw);
+      if (data.code !== 'Ok' || !data.routes.length) return showToast('No driving route was found.');
+      const route = data.routes[0];
+      const latLngs = route.geometry.coordinates.map(point => [point[1],point[0]]);
+      if (routeLine) routeLine.remove();
+      routeLine = L.polyline(latLngs, { color:'#10231d', weight:6, opacity:.86, lineJoin:'round' }).addTo(map);
+      routePoints = latLngs.map(point => ({ lat:point[0], lng:point[1] }));
+      routeCumulative = [0];
+      for (let i=1;i<routePoints.length;i++) routeCumulative.push(routeCumulative[i-1] + haversineKm(routePoints[i-1], routePoints[i]));
+      routeTotalKm = route.distance / 1000;
+      routeBaseDurationSec = route.duration;
+      routeSteps = ((route.legs && route.legs[0] && route.legs[0].steps) || []).map(step => {
+        const location = step.maneuver && step.maneuver.location;
+        return { index:location ? nearestRouteIndex({lat:location[1],lng:location[0]}) : 0,
+          point:location ? {lat:location[1],lng:location[0]} : routePoints[0], instruction:turnInstruction(step) };
+      });
+      map.fitBounds(routeLine.getBounds(), { paddingTopLeft:[35,130], paddingBottomRight:[35,150] });
+      const km = route.distance / 1000;
+      const minutes = Math.max(1, Math.round(route.duration / 60));
+      meta.textContent = km.toFixed(km < 10 ? 1 : 0) + ' km  •  about ' + minutes + ' min';
+    };
+
+    document.getElementById('locate').onclick = locate;
+    function locate() {
+      if (!navigator.geolocation) return showToast('Location is not available on this device.');
+      navigator.geolocation.getCurrentPosition(updatePosition, locationError, { enableHighAccuracy:true, timeout:12000 });
+    }
+
+    function updatePosition(position) {
+      currentPosition = { lat:position.coords.latitude, lng:position.coords.longitude };
+      if (!meMarker) meMarker = L.marker([currentPosition.lat,currentPosition.lng], { icon:meIcon, zIndexOffset:1000 }).addTo(map);
+      else meMarker.setLatLng([currentPosition.lat,currentPosition.lng]);
+      if (!navigating) map.setView([currentPosition.lat,currentPosition.lng], 16);
+    }
+
+    function locationError() { showToast('Allow location access to start from your position.'); }
+
+    document.getElementById('go').onclick = () => {
+      if (!destination) return;
+      navigating = !navigating;
+      document.getElementById('go').textContent = navigating ? 'STOP' : 'GO';
+      if (navigating) {
+        showToast('Navigation started');
+        watchId = navigator.geolocation.watchPosition(position => {
+          updatePosition(position);
+          map.panTo([currentPosition.lat,currentPosition.lng]);
+        }, locationError, { enableHighAccuracy:true, maximumAge:3000 });
+      } else {
+        if (watchId !== undefined) navigator.geolocation.clearWatch(watchId);
+        showToast('Navigation stopped');
+      }
+    };
+
+    window.onMapError = message => showToast(message);
+
+    const tripModal = document.getElementById('tripModal');
+    const welcomeModal = document.getElementById('welcomeModal');
+    const joinModal = document.getElementById('joinModal');
+    const historyModal = document.getElementById('historyModal');
+    const endModal = document.getElementById('endModal');
+    const organizerModal = document.getElementById('organizerModal');
+    const safetyModal = document.getElementById('safetyModal');
+    document.getElementById('riderName').value = localStorage.getItem('ridebuddyName') || '';
+    document.getElementById('joinRiderName').value = localStorage.getItem('ridebuddyName') || '';
+    document.getElementById('riderPhone').value = localStorage.getItem('ridebuddyPhone') || '';
+    document.getElementById('joinRiderPhone').value = localStorage.getItem('ridebuddyPhone') || '';
+    const defaultEnd = new Date(Date.now() + 3 * 60 * 60 * 1000);
+    defaultEnd.setMinutes(defaultEnd.getMinutes() - defaultEnd.getTimezoneOffset());
+    document.getElementById('tripEnd').value = defaultEnd.toISOString().slice(0,16);
+    function showWelcome() {
+      document.body.classList.add('welcome-open'); welcomeModal.style.display='flex';
+      document.getElementById('closeWelcome').style.display=activeTripCode ? 'block' : 'none';
+    }
+    function leaveWelcome() { document.body.classList.remove('welcome-open'); welcomeModal.style.display='none'; }
+    function closeTopPage() {
+      const simplePages=[safetyModal,organizerModal,endModal];
+      const simple=simplePages.find(page=>page.style.display==='flex');
+      if (simple) { simple.style.display='none'; return true; }
+      if (tripModal.style.display==='flex') { tripModal.style.display='none'; showWelcome(); return true; }
+      if (joinModal.style.display==='flex') { joinModal.style.display='none'; showWelcome(); return true; }
+      if (historyModal.style.display==='flex') { historyModal.style.display='none'; showWelcome(); return true; }
+      const inlineResults=document.getElementById('createDestinationResults');
+      if (inlineResults.style.display==='block') { inlineResults.style.display='none'; return true; }
+      if (results.style.display==='block') { results.style.display='none'; return true; }
+      if (welcomeModal.style.display==='flex' && activeTripCode) { leaveWelcome(); return true; }
+      return false;
+    }
+    window.handleBackNavigation=closeTopPage;
+    document.getElementById('ridersBtn').onclick = showWelcome;
+    document.getElementById('welcomeCreate').onclick = () => { leaveWelcome(); tripModal.style.display='flex'; };
+    document.getElementById('welcomeJoin').onclick = () => { leaveWelcome(); selectedTripMode='cloud'; joinModal.style.display='flex'; };
+    document.getElementById('openHistory').onclick = () => { leaveWelcome(); renderRideHistory(); historyModal.style.display='flex'; };
+    document.getElementById('closeWelcome').onclick = closeTopPage;
+    document.getElementById('closeTrip').onclick = closeTopPage;
+    document.getElementById('closeJoin').onclick = closeTopPage;
+    document.getElementById('closeHistory').onclick = closeTopPage;
+    document.getElementById('clearHistory').onclick = () => {
+      if (!confirm('Clear all saved ride summaries from this phone?')) return;
+      localStorage.removeItem('ridebuddyHistory'); renderRideHistory();
+    };
+    [tripModal,joinModal,historyModal,endModal,safetyModal,organizerModal].forEach(page =>
+      page.addEventListener('click', event => { if (event.target===page) closeTopPage(); }));
+    document.getElementById('createDestinationForm').onsubmit = event => {
+      event.preventDefault();
+      const query = document.getElementById('createDestinationQuery').value.trim();
+      if (!query) return;
+      const list = document.getElementById('createDestinationResults');
+      list.style.display = 'block';
+      list.innerHTML = '<div class="result"><strong>Searching…</strong><span>Looking across OpenStreetMap</span></div>';
+      RideBuddyApi.searchCreateDestination(query);
+    };
+    window.onCreateDestinationResults = raw => {
+      const places = JSON.parse(raw), list = document.getElementById('createDestinationResults');
+      list.innerHTML = ''; list.style.display = 'block';
+      if (!places.length) {
+        list.innerHTML = '<div class="result"><strong>No destinations found</strong><span>Try a landmark, area, or city</span></div>';
+        return;
+      }
+      places.forEach(place => {
+        const row = document.createElement('div'), parts = place.display_name.split(','), title = parts.shift();
+        row.className = 'result'; row.innerHTML = '<strong></strong><span></span>';
+        row.querySelector('strong').textContent = title;
+        row.querySelector('span').textContent = parts.join(',').trim();
+        row.onclick = () => selectPlace(place, title);
+        list.appendChild(row);
+      });
+    };
+    document.querySelectorAll('.mode').forEach(button => button.onclick = () => {
+      selectedTripMode = button.dataset.mode;
+      document.querySelectorAll('.mode').forEach(item => item.classList.toggle('active', item === button));
+      const hint = document.getElementById('tripHint');
+      hint.textContent = selectedTripMode === 'nearby'
+        ? 'Nearby Ride works directly between nearby Android phones.'
+        : (RideBuddyApi.cloudConfigured() ? 'Connected Ride is ready.' : 'Firebase setup is required. See README.md.');
+    });
+
+    function tripForm() {
+      const name = document.getElementById('riderName').value.trim() || 'Rider';
+      const phone = document.getElementById('riderPhone').value.trim();
+      localStorage.setItem('ridebuddyName', name);
+      localStorage.setItem('ridebuddyPhone', phone);
+      return { name, phone };
+    }
+    document.getElementById('createTrip').onclick = () => {
+      const form = tripForm();
+      const odoText = document.getElementById('creatorOdometerStart').value;
+      pendingOdometerStart = odoText === '' ? -1 : Number(odoText);
+      if (pendingOdometerStart < 0 || !Number.isFinite(pendingOdometerStart)) return showToast('Enter a valid starting odometer.');
+      if (!destination) {
+        document.getElementById('createDestinationQuery').focus();
+        return showToast('Search and select a destination in this form.');
+      }
+      const expiresAt = new Date(document.getElementById('tripEnd').value).getTime();
+      if (!expiresAt || expiresAt < Date.now() + 60000) return showToast('Choose a future trip end time.');
+      document.getElementById('tripHint').textContent = 'Creating trip…';
+      RideBuddyApi.createTrip(selectedTripMode, form.name, expiresAt,
+        destination.title, destination.lat, destination.lng, pendingOdometerStart, form.phone);
+    };
+    document.getElementById('previewTrip').onclick = () => {
+      const code = document.getElementById('joinCode').value.trim().toUpperCase();
+      if (!/^[A-Z0-9]{6}$/.test(code)) return showToast('Enter the six-character ride code.');
+      document.getElementById('joinHint').textContent = 'Loading ride summary…';
+      if (selectedTripMode === 'nearby') {
+        previewExpiresAt = Date.now() + 24 * 60 * 60 * 1000;
+        document.getElementById('previewDestination').textContent = 'Available after secure nearby pairing';
+        document.getElementById('previewEnds').textContent = 'The creator’s destination and final cutoff are received directly from their phone.';
+        const personal = new Date(Date.now() + 3 * 60 * 60 * 1000);
+        personal.setMinutes(personal.getMinutes() - personal.getTimezoneOffset());
+        document.getElementById('personalEnd').value = personal.toISOString().slice(0,16);
+        document.getElementById('joinSummary').style.display = 'block';
+        document.getElementById('joinHint').textContent = 'Stay close to the creator while joining.';
+      } else RideBuddyApi.previewTrip(code);
+    };
+
+    window.onTripPreview = (code, title, lat, lng, expiresAt) => {
+      previewExpiresAt = Number(expiresAt);
+      previewDestination = { title, lat:Number(lat), lng:Number(lng) };
+      document.getElementById('previewDestination').textContent = title;
+      document.getElementById('previewEnds').textContent = 'Organizer’s ride ends ' + new Date(previewExpiresAt).toLocaleString();
+      const personal = new Date(previewExpiresAt);
+      personal.setMinutes(personal.getMinutes() - personal.getTimezoneOffset());
+      document.getElementById('personalEnd').value = personal.toISOString().slice(0,16);
+      document.getElementById('joinSummary').style.display = 'block';
+      document.getElementById('joinHint').textContent = 'You may stop sharing earlier than the organizer.';
+    };
+    document.getElementById('confirmJoin').onclick = () => {
+      const code = document.getElementById('joinCode').value.trim().toUpperCase();
+      const name = document.getElementById('joinRiderName').value.trim() || 'Rider';
+      const phone = document.getElementById('joinRiderPhone').value.trim();
+      const personalEnd = new Date(document.getElementById('personalEnd').value).getTime();
+      if (!personalEnd || personalEnd <= Date.now() || personalEnd > previewExpiresAt)
+        return showToast('Choose a sharing time no later than the ride end.');
+      const odoText = document.getElementById('odometerStart').value;
+      pendingOdometerStart = odoText === '' ? -1 : Number(odoText);
+      localStorage.setItem('ridebuddyName', name);
+      localStorage.setItem('ridebuddyPhone', phone);
+      document.getElementById('joinHint').textContent = 'Joining ride…';
+      RideBuddyApi.joinTrip(selectedTripMode, code, name, personalEnd, pendingOdometerStart, phone);
+    };
+
+    window.onTripStatus = message => {
+      document.getElementById('tripHint').textContent = message;
+      document.getElementById('joinHint').textContent = message;
+      showToast(message);
+    };
+    window.onInviteLink = (mode, code) => {
+      selectedTripMode = mode === 'nearby' ? 'nearby' : 'cloud';
+      document.getElementById('joinCode').value = code;
+      welcomeModal.style.display = 'none'; document.body.classList.remove('welcome-open');
+      joinModal.style.display = 'flex';
+      document.getElementById('joinHint').textContent = selectedTripMode === 'nearby'
+        ? 'Move close to the trip creator to join this nearby ride.' : 'Invitation loaded. Tap View ride.';
+      if (selectedTripMode === 'cloud') RideBuddyApi.previewTrip(code);
+    };
+    window.onRestoringTrip = code => {
+      welcomeModal.style.display = 'none';
+      joinModal.style.display = 'none';
+      tripModal.style.display = 'none';
+      document.body.classList.remove('welcome-open');
+      showToast('Restoring active ride ' + code + '…');
+    };
+    window.onTripReady = (mode, code, riderId, expiresAt, tripDestinationTitle, tripDestinationLat, tripDestinationLng, odometerStart) => {
+      activeTripMode = mode; activeTripCode = code; activeRiderId = riderId; activeExpiresAt = Number(expiresAt);
+      activeStartedAt = Date.now(); activeOdometerStart = Number(odometerStart);
+      if (!Number.isFinite(activeOdometerStart)) activeOdometerStart = pendingOdometerStart;
+      activeDestinationTitle = tripDestinationTitle; tripAlreadyEnded = false;
+      telemetryDistanceKm = 0; telemetryMaxSpeed = 0; lastTelemetryPoint = undefined;
+      isOrganizer = false; organizerJoinLocked = false; organizerMembers = [];
+      document.getElementById('organizerManage').style.display = 'none';
+      const incomingLat = Number(tripDestinationLat), incomingLng = Number(tripDestinationLng);
+      if (!destination || Math.abs(destination.lat - incomingLat) > .00001 || Math.abs(destination.lng - incomingLng) > .00001) {
+        destination = { lat:incomingLat, lng:incomingLng, title:tripDestinationTitle };
+        if (destinationMarker) destinationMarker.remove();
+        destinationMarker = L.marker([incomingLat,incomingLng], { icon:pinIcon }).addTo(map);
+        destinationMarker.bindPopup('<b>' + escapeHtml(tripDestinationTitle) + '</b>').openPopup();
+        document.getElementById('destination').textContent = tripDestinationTitle;
+        const selected = document.getElementById('selectedCreateDestination');
+        selected.textContent = '📍 Destination: ' + tripDestinationTitle;
+        selected.style.display = 'block';
+        sheet.style.display = 'flex';
+        const start = currentPosition || { lat:map.getCenter().lat, lng:map.getCenter().lng };
+        RideBuddyApi.route(start.lng, start.lat, incomingLng, incomingLat);
+      }
+      tripModal.style.display = 'none';
+      joinModal.style.display = 'none';
+      welcomeModal.style.display = 'none'; document.body.classList.remove('welcome-open');
+      document.getElementById('liveMode').textContent = mode === 'nearby' ? 'NEARBY RIDE' : 'CONNECTED RIDE';
+      document.getElementById('liveCode').textContent = code;
+      document.getElementById('tripLive').style.display = 'flex';
+      document.getElementById('telemetryDestination').textContent = tripDestinationTitle;
+      document.getElementById('telemetryCode').textContent = code;
+      document.getElementById('liveSpeed').textContent = '0';
+      document.getElementById('maxSpeed').textContent = '0';
+      document.getElementById('avgSpeed').textContent = '0';
+      document.getElementById('rideDistance').textContent = '0.0';
+      document.getElementById('rideElapsed').textContent = '00:00';
+      document.getElementById('telemetryRiders').textContent = '1 rider live';
+      document.body.classList.add('ride-active');
+      setTimeout(() => map.invalidateSize(), 350);
+      locate();
+    };
+    window.onNativeLocation = (lat, lng, accuracy, speed, bearing, altitude) => {
+      const now = Date.now(), point = { lat:Number(lat), lng:Number(lng), at:now };
+      currentPosition = { lat:point.lat, lng:point.lng };
+      if (!meMarker) meMarker = L.marker([currentPosition.lat,currentPosition.lng], { icon:meIcon, zIndexOffset:1000 }).addTo(map);
+      else meMarker.setLatLng([currentPosition.lat,currentPosition.lng]);
+      const speedKmh = Math.max(0, Number(speed) * 3.6);
+      telemetryMaxSpeed = Math.max(telemetryMaxSpeed, speedKmh);
+      if (lastTelemetryPoint && Number(accuracy) <= 50) {
+        const segment = haversineKm(lastTelemetryPoint, point);
+        const seconds = Math.max(1, (now - lastTelemetryPoint.at) / 1000);
+        if (segment < Math.max(.25, speedKmh / 3600 * seconds * 3)) telemetryDistanceKm += segment;
+      }
+      lastTelemetryPoint = point;
+      document.getElementById('liveSpeed').textContent = Math.round(speedKmh);
+      document.getElementById('maxSpeed').textContent = Math.round(telemetryMaxSpeed);
+      document.getElementById('rideDistance').textContent = telemetryDistanceKm.toFixed(1);
+      const degrees = ((Number(bearing) % 360) + 360) % 360;
+      document.getElementById('headingArrow').style.transform = 'rotate(' + degrees + 'deg)';
+      document.getElementById('headingText').textContent = cardinal(degrees);
+      document.getElementById('gpsAccuracy').textContent = 'GPS ±' + Math.round(Number(accuracy)) + 'm';
+      updateRouteProgress(point);
+    };
+    document.getElementById('shareTrip').onclick = () => RideBuddyApi.shareTrip(activeTripMode, activeTripCode);
+    function openEndRide() {
+      document.getElementById('endDestination').textContent = 'Destination: ' + (activeDestinationTitle || '—');
+      document.getElementById('odometerEnd').value = '';
+      document.getElementById('rideSummary').style.display = 'none';
+      document.getElementById('finishRide').style.display = 'block';
+      endModal.style.display = 'flex';
+    }
+    document.getElementById('leaveTrip').onclick = openEndRide;
+    document.getElementById('telemetryEnd').onclick = openEndRide;
+    document.getElementById('telemetryShare').onclick = () => RideBuddyApi.shareTrip(activeTripMode, activeTripCode);
+    document.getElementById('openSafety').onclick = () => safetyModal.style.display = 'flex';
+    document.getElementById('closeSafety').onclick = () => safetyModal.style.display = 'none';
+    document.getElementById('sendSos').onclick = () => {
+      if (!confirm('Send an SOS with your live location to every rider?')) return;
+      RideBuddyApi.setSafetyStatus('sos'); safetyModal.style.display='none'; showToast('SOS sent to the ride group.');
+    };
+    document.getElementById('sendBreakdown').onclick = () => {
+      RideBuddyApi.setSafetyStatus('breakdown'); safetyModal.style.display='none'; showToast('Breakdown alert sent.');
+    };
+    document.getElementById('clearSafety').onclick = () => {
+      RideBuddyApi.clearSafetyStatus(); safetyAlerts.delete(activeRiderId); localSafetyAlertId='';
+      renderSafetyBanner(); safetyModal.style.display='none'; showToast('Your safety alert was cleared.');
+    };
+    document.getElementById('acknowledgeSafety').onclick = () => {
+      if (!displayedSafetyAlertId) return;
+      RideBuddyApi.acknowledgeSafety(displayedSafetyAlertId); showToast('Acknowledgement sent.');
+    };
+    document.getElementById('organizerManage').onclick = () => organizerModal.style.display = 'flex';
+    document.getElementById('closeOrganizer').onclick = () => organizerModal.style.display = 'none';
+    document.getElementById('toggleJoinLock').onclick = () => RideBuddyApi.setJoinLocked(!organizerJoinLocked);
+    document.getElementById('extendRide').onclick = () => {
+      const value = new Date(document.getElementById('organizerEnd').value).getTime();
+      if (!value) return showToast('Choose a new ride end time.');
+      RideBuddyApi.extendTrip(value);
+    };
+    document.getElementById('endForEveryone').onclick = () => {
+      if (confirm('End this ride for every rider?')) RideBuddyApi.endTripForEveryone();
+    };
+    document.querySelectorAll('[data-stop]').forEach(button => button.onclick = () => {
+      if (!currentPosition) return showToast('Waiting for your GPS position.');
+      const type = button.dataset.stop;
+      const labels = { regroup:'Regroup point', fuel:'Fuel stop', rest:'Rest stop' };
+      RideBuddyApi.addRouteStop(type, labels[type], currentPosition.lat, currentPosition.lng);
+    });
+    window.onOrganizerState = (organizer, locked, tripEnd, membersJson) => {
+      isOrganizer = organizer === 'true'; organizerJoinLocked = locked === 'true';
+      organizerMembers = JSON.parse(membersJson || '[]');
+      document.getElementById('organizerManage').style.display = isOrganizer ? 'inline-block' : 'none';
+      document.getElementById('toggleJoinLock').textContent = organizerJoinLocked ? 'UNLOCK NEW RIDERS' : 'LOCK NEW RIDERS';
+      const end = new Date(Number(tripEnd)); end.setMinutes(end.getMinutes() - end.getTimezoneOffset());
+      document.getElementById('organizerEnd').value = end.toISOString().slice(0,16);
+      const list = document.getElementById('organizerMembers'); list.innerHTML = '';
+      organizerMembers.forEach(member => {
+        const row = document.createElement('div'); row.className = 'member-row';
+        const identity = document.createElement('span');
+        identity.innerHTML = '<strong></strong><small></small>';
+        identity.querySelector('strong').textContent = member.name || 'Rider';
+        identity.querySelector('small').textContent = member.id === activeRiderId
+          ? (isOrganizer ? 'You · organizer' : 'You') : 'Sharing member';
+        row.appendChild(identity);
+        if (isOrganizer && member.id !== activeRiderId) {
+          const promote = document.createElement('button'); promote.textContent = 'MAKE ORGANIZER';
+          promote.onclick = () => { if (confirm('Make ' + (member.name||'this rider') + ' the organizer?')) RideBuddyApi.makeOrganizer(member.id); };
+          const remove = document.createElement('button'); remove.textContent = 'REMOVE';
+          remove.onclick = () => { if (confirm('Remove ' + (member.name||'this rider') + '?')) RideBuddyApi.removeRider(member.id); };
+          row.appendChild(promote); row.appendChild(remove);
+        }
+        list.appendChild(row);
+      });
+      renderOrganizerStops();
+    };
+    window.onRouteStopsChanged = raw => {
+      routeStopsData = JSON.parse(raw || '[]');
+      routeStopMarkers.forEach(marker => marker.remove()); routeStopMarkers.clear();
+      const icons = { regroup:'🏁', fuel:'⛽', rest:'☕' };
+      routeStopsData.forEach(stop => {
+        const icon = L.divIcon({ className:'route-stop-icon', html:icons[stop.type] || '📍', iconSize:[36,36], iconAnchor:[18,18] });
+        const marker = L.marker([Number(stop.lat),Number(stop.lng)], { icon, zIndexOffset:850 }).addTo(map);
+        marker.bindPopup('<b>' + escapeHtml(stop.label || 'Route stop') + '</b><br>' + escapeHtml((stop.type || 'stop').toUpperCase()));
+        routeStopMarkers.set(stop.id, marker);
+      });
+      renderOrganizerStops();
+    };
+    function renderOrganizerStops() {
+      const list = document.getElementById('organizerStops'); list.innerHTML = '';
+      if (!routeStopsData.length) { list.innerHTML = '<small>No route stops added yet.</small>'; return; }
+      routeStopsData.forEach(stop => {
+        const row = document.createElement('div'); row.className = 'member-row';
+        const label = document.createElement('span'); label.innerHTML = '<strong></strong><small></small>';
+        label.querySelector('strong').textContent = stop.label || 'Route stop';
+        label.querySelector('small').textContent = (stop.type || 'stop').toUpperCase(); row.appendChild(label);
+        if (isOrganizer) {
+          const remove = document.createElement('button'); remove.textContent = 'REMOVE';
+          remove.onclick = () => RideBuddyApi.removeRouteStop(stop.id); row.appendChild(remove);
+        }
+        list.appendChild(row);
+      });
+    }
+    window.onSharingCutoffChanged = (sharingUntil, tripEnd) => {
+      activeExpiresAt = Number(sharingUntil);
+      showToast('Ride end updated to ' + new Date(Number(tripEnd)).toLocaleString());
+    };
+    document.getElementById('closeEnd').onclick = () => endModal.style.display = 'none';
+    function rideHistory() {
+      try { return JSON.parse(localStorage.getItem('ridebuddyHistory') || '[]'); }
+      catch (error) { return []; }
+    }
+    function saveRideHistory(entry) {
+      const history=rideHistory(); history.unshift(entry);
+      localStorage.setItem('ridebuddyHistory',JSON.stringify(history.slice(0,50)));
+    }
+    function renderRideHistory() {
+      const list=document.getElementById('historyList'), history=rideHistory(); list.innerHTML='';
+      document.getElementById('clearHistory').style.display=history.length ? 'block' : 'none';
+      if (!history.length) { list.innerHTML='<div class="summary" style="display:block"><h3>No completed rides yet</h3><p>Your distance, duration and odometer summaries will appear here.</p></div>'; return; }
+      history.forEach(ride => {
+        const card=document.createElement('div'); card.className='history-entry';
+        card.innerHTML='<small></small><h3></h3><p class="history-duration"></p><p class="history-distance"></p><p class="history-performance"></p>';
+        card.querySelector('small').textContent=new Date(ride.endedAt).toLocaleString();
+        card.querySelector('h3').textContent=ride.destination || 'Completed ride';
+        card.querySelector('.history-duration').textContent=ride.durationMinutes+' min · '+ride.mode;
+        card.querySelector('.history-distance').textContent='GPS '+Number(ride.gpsDistanceKm||0).toFixed(1)+' km'+
+          (ride.odometerDistance == null ? '' : ' · Odometer '+Number(ride.odometerDistance).toFixed(1));
+        card.querySelector('.history-performance').textContent='Max '+Math.round(ride.maxSpeedKmh||0)+' km/h · '+(ride.riderCount||1)+' rider'+((ride.riderCount||1)===1?'':'s');
+        list.appendChild(card);
+      });
+    }
+    document.getElementById('finishRide').onclick = () => {
+      const endText = document.getElementById('odometerEnd').value;
+      const endOdo = endText === '' ? -1 : Number(endText);
+      const durationMinutes = Math.max(1, Math.round((Date.now() - activeStartedAt) / 60000));
+      let distanceLine = '<p>Odometer distance: not recorded</p>';
+      if (activeOdometerStart >= 0 && endOdo >= activeOdometerStart)
+        distanceLine = '<p><strong>' + (endOdo - activeOdometerStart).toFixed(1) + '</strong> odometer units travelled</p>';
+      document.getElementById('rideSummary').innerHTML = '<small>YOUR TRIP SUMMARY</small><h3>' +
+        escapeHtml(activeDestinationTitle || 'Ride completed') + '</h3><p><strong>' + durationMinutes +
+        '</strong> minutes</p>' + distanceLine;
+      document.getElementById('rideSummary').style.display = 'block';
+      document.getElementById('finishRide').style.display = 'none';
+      saveRideHistory({ endedAt:Date.now(), destination:activeDestinationTitle, durationMinutes,
+        mode:activeTripMode === 'cloud' ? 'Connected Ride' : 'Nearby Ride', gpsDistanceKm:telemetryDistanceKm,
+        odometerDistance:activeOdometerStart >= 0 && endOdo >= activeOdometerStart ? endOdo-activeOdometerStart : null,
+        maxSpeedKmh:telemetryMaxSpeed, riderCount:Math.max(1,organizerMembers.length,riderMarkers.size+1) });
+      if (!tripAlreadyEnded) RideBuddyApi.finishTrip(endOdo);
+      tripAlreadyEnded = true;
+    };
+    window.onTripEnded = reason => {
+      tripAlreadyEnded = true;
+      activeTripCode = undefined;
+      activeExpiresAt = undefined;
+      document.getElementById('tripLive').style.display = 'none';
+      document.body.classList.remove('ride-active');
+      organizerModal.style.display = 'none';
+      setTimeout(() => map.invalidateSize(), 350);
+      riderMarkers.forEach(marker => marker.remove()); riderMarkers.clear();
+      showToast(reason || 'Location sharing stopped.');
+      if (endModal.style.display !== 'flex') {
+        document.getElementById('endDestination').textContent = reason || 'Ride ended';
+        document.getElementById('finishRide').style.display = 'block';
+        document.getElementById('rideSummary').style.display = 'none';
+        endModal.style.display = 'flex';
+      }
+    };
+    window.onPairingRequest = (endpointId, name, digits) => {
+      const accepted = confirm('Connect to ' + name + '?\n\nConfirm that both phones show: ' + digits);
+      RideBuddyApi.respondToPairing(endpointId, accepted);
+    };
+    window.onRiderLocation = raw => {
+      const rider = JSON.parse(raw);
+      updateSafetyState(rider);
+      if (!rider.riderId || rider.riderId === activeRiderId) return;
+      let marker = riderMarkers.get(rider.riderId);
+      if (!marker) {
+        const hue = Math.abs(hashCode(rider.riderId)) % 360;
+        const icon = L.divIcon({ className:'rider-bubble', html:escapeHtml((rider.name || 'R').slice(0,1).toUpperCase()),
+          iconSize:[34,34], iconAnchor:[17,17] });
+        icon.options.className += ' rider-' + (Math.abs(hashCode(rider.riderId)) % 8);
+        marker = L.marker([rider.lat,rider.lng], { icon, zIndexOffset:900 }).addTo(map);
+        marker.getElement().style.background = 'hsl(' + hue + ' 62% 42%)';
+        riderMarkers.set(rider.riderId, marker);
+      } else marker.setLatLng([rider.lat,rider.lng]);
+      document.getElementById('telemetryRiders').textContent = (riderMarkers.size + 1) + ' riders live';
+      marker.updatedAt = Number(rider.updatedAt || Date.now());
+      marker.riderData = rider;
+      if (marker.getElement()) {
+        marker.getElement().style.borderColor = rider.safetyType ? '#ff342b' : 'white';
+        marker.getElement().style.boxShadow = rider.safetyType ? '0 0 0 7px #ff342b55,0 3px 12px #0006' : '0 3px 12px #0006';
+      }
+      updateRiderPopup(marker, 'Live');
+    };
+    function updateSafetyState(rider) {
+      if (!rider.riderId) return;
+      if (rider.safetyType && rider.safetyAlertId) {
+        safetyAlerts.set(rider.riderId, rider);
+        if (rider.riderId === activeRiderId) localSafetyAlertId = rider.safetyAlertId;
+      } else safetyAlerts.delete(rider.riderId);
+      if (rider.acknowledgedAlertId) {
+        if (!safetyAcknowledgements.has(rider.acknowledgedAlertId)) safetyAcknowledgements.set(rider.acknowledgedAlertId,new Set());
+        safetyAcknowledgements.get(rider.acknowledgedAlertId).add(rider.name || 'Rider');
+      }
+      renderSafetyBanner();
+    }
+    function renderSafetyBanner() {
+      const banner=document.getElementById('safetyBanner'), alerts=[...safetyAlerts.values()];
+      if (!alerts.length) { banner.style.display='none'; displayedSafetyAlertId=''; return; }
+      const alert=alerts.find(item=>item.riderId!==activeRiderId) || alerts[0];
+      displayedSafetyAlertId=alert.safetyAlertId;
+      const own=alert.riderId===activeRiderId, type=alert.safetyType==='breakdown'?'BREAKDOWN':'SOS';
+      document.getElementById('safetyTitle').textContent=(own?'YOUR ':((alert.name||'Rider')+' · '))+type;
+      const acknowledgements=safetyAcknowledgements.get(alert.safetyAlertId);
+      document.getElementById('safetyDetail').textContent=own
+        ? ((acknowledgements?.size||0)+' rider acknowledgement(s) received')
+        : 'Live location is marked on the map. Respond when safe.';
+      const button=document.getElementById('acknowledgeSafety');
+      button.textContent=own?'I’M SAFE — CLEAR':'I SEE THIS';
+      button.onclick=() => {
+        if (own) { RideBuddyApi.clearSafetyStatus(); safetyAlerts.delete(activeRiderId); localSafetyAlertId=''; renderSafetyBanner(); }
+        else { RideBuddyApi.acknowledgeSafety(alert.safetyAlertId); showToast('Acknowledgement sent to '+(alert.name||'rider')+'.'); }
+      };
+      banner.style.display='block';
+    }
+    window.onRiderLeft = riderId => {
+      const marker = riderMarkers.get(riderId);
+      if (marker) showRiderAlert((marker.riderData?.name || 'A rider') + ' stopped sharing location');
+      if (marker) marker.remove();
+      riderMarkers.delete(riderId);
+      safetyAlerts.delete(riderId); renderSafetyBanner();
+      document.getElementById('telemetryRiders').textContent = (riderMarkers.size + 1) + ' riders live';
+    };
+    setInterval(() => {
+      const alerts = [];
+      riderMarkers.forEach(marker => {
+        const age = Date.now() - marker.updatedAt, rider = marker.riderData || {};
+        marker.setOpacity(age > 120000 ? .25 : age > 30000 ? .55 : 1);
+        let status = 'Live';
+        if (age > 60000) { status = 'No update for ' + Math.floor(age / 1000) + 's'; alerts.push((rider.name || 'Rider') + ': signal lost'); }
+        else if (Number(rider.accuracy) > 50) { status = 'Poor GPS ±' + Math.round(rider.accuracy) + 'm'; alerts.push((rider.name || 'Rider') + ': poor GPS'); }
+        const routeDistance = distanceFromRoute(marker.getLatLng());
+        if (routeDistance > 500) { status = Math.round(routeDistance) + 'm off route'; alerts.push((rider.name || 'Rider') + ': off route'); }
+        updateRiderPopup(marker, status);
+      });
+      const panel = document.getElementById('riderAlerts');
+      if (alerts.length) { panel.textContent = '⚠ ' + [...new Set(alerts)].join(' · '); panel.style.display = 'block'; }
+      else panel.style.display = 'none';
+    }, 5000);
+    function updateRiderPopup(marker, status) {
+      const rider = marker.riderData || {}, age = Math.max(0, Math.floor((Date.now() - marker.updatedAt) / 1000));
+      const phone = rider.phone ? '<br><a href="tel:' + escapeHtml(rider.phone) + '">Call rider</a>' : '';
+      marker.bindPopup('<b>' + escapeHtml(rider.name || 'Rider') + '</b><br>' +
+        Math.round((Number(rider.speed)||0) * 3.6) + ' km/h · GPS ±' + Math.round(Number(rider.accuracy)||0) +
+        'm<br>' + escapeHtml(status) + ' · ' + age + 's ago' + phone);
+    }
+    function distanceFromRoute(latLng) {
+      if (!routeLine) return 0;
+      const points = routeLine.getLatLngs();
+      let closest = Infinity;
+      for (let i=0;i<points.length;i+=Math.max(1,Math.floor(points.length/250))) closest=Math.min(closest,map.distance(latLng,points[i]));
+      return closest;
+    }
+    function nearestRouteIndex(point) {
+      let best=0, distance=Infinity;
+      for (let i=0;i<routePoints.length;i++) {
+        const candidate=haversineKm(point,routePoints[i]);
+        if (candidate<distance) { distance=candidate; best=i; }
+      }
+      return best;
+    }
+    function turnInstruction(step) {
+      const maneuver=step.maneuver || {}, type=(maneuver.type || 'continue').replaceAll('_',' '), modifier=maneuver.modifier || '';
+      if (type==='depart') return 'Start' + (step.name ? ' toward '+step.name : '');
+      if (type==='arrive') return 'Arrive at destination';
+      if (type.includes('roundabout')) return 'Take the roundabout' + (maneuver.exit ? ', exit '+maneuver.exit : '');
+      return type.charAt(0).toUpperCase()+type.slice(1) + (modifier ? ' '+modifier : '') + (step.name ? ' onto '+step.name : '');
+    }
+    function turnDistance(from,to) {
+      const meters=map.distance(from,to);
+      return meters<1000 ? Math.max(10,Math.round(meters/10)*10)+' m' : (meters/1000).toFixed(1)+' km';
+    }
+    function updateRouteProgress(point) {
+      if (!routePoints.length || !routeTotalKm) return;
+      const index=nearestRouteIndex(point), offRouteMeters=map.distance(point,routePoints[index]);
+      const routeRemaining=Math.max(0,routeCumulative[routeCumulative.length-1]-routeCumulative[index]);
+      const remainingKm=routeRemaining+offRouteMeters/1000;
+      const progress=Math.max(0,Math.min(100,(1-remainingKm/routeTotalKm)*100));
+      const etaSeconds=Math.max(0,routeBaseDurationSec*(remainingKm/routeTotalKm));
+      document.getElementById('routeRemaining').textContent=remainingKm<10 ? remainingKm.toFixed(1)+' km' : Math.round(remainingKm)+' km';
+      document.getElementById('routePercent').textContent=Math.round(progress)+'%';
+      document.getElementById('routeProgressFill').style.width=progress+'%';
+      document.getElementById('routeEta').textContent=new Date(Date.now()+etaSeconds*1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+      const next=routeSteps.find(step=>step.index>index+1);
+      document.getElementById('nextTurn').textContent=next
+        ? turnDistance(point,next.point)+' · '+next.instruction
+        : (remainingKm<.15 ? 'Destination reached' : 'Continue to destination');
+      if (offRouteMeters>500 && destination && Date.now()-lastRerouteAt>60000) {
+        lastRerouteAt=Date.now(); showRiderAlert('You are off route — recalculating');
+        RideBuddyApi.route(point.lng,point.lat,destination.lng,destination.lat);
+      }
+    }
+    function showRiderAlert(message) {
+      const panel = document.getElementById('riderAlerts');
+      panel.textContent = '⚠ ' + message; panel.style.display = 'block';
+      clearTimeout(showRiderAlert.timer); showRiderAlert.timer = setTimeout(() => panel.style.display='none',10000);
+    }
+    setInterval(() => {
+      if (!activeExpiresAt) return;
+      const remaining = activeExpiresAt - Date.now();
+      if (remaining <= 0) {
+        document.getElementById('liveRemaining').textContent = 'ending…';
+        return;
+      }
+      const minutes = Math.max(1, Math.ceil(remaining / 60000));
+      document.getElementById('liveRemaining').textContent = minutes >= 60
+        ? Math.floor(minutes / 60) + 'h ' + (minutes % 60) + 'm left' : minutes + 'm left';
+      if (activeStartedAt && activeTripCode) {
+        const elapsedSeconds = Math.max(1, Math.floor((Date.now() - activeStartedAt) / 1000));
+        const hours = Math.floor(elapsedSeconds / 3600), mins = Math.floor((elapsedSeconds % 3600) / 60), secs = elapsedSeconds % 60;
+        document.getElementById('rideElapsed').textContent = hours > 0
+          ? hours + ':' + String(mins).padStart(2,'0') : String(mins).padStart(2,'0') + ':' + String(secs).padStart(2,'0');
+        document.getElementById('avgSpeed').textContent = Math.round(telemetryDistanceKm / (elapsedSeconds / 3600));
+      }
+    }, 1000);
+    function haversineKm(a,b) {
+      const r=6371, dLat=(b.lat-a.lat)*Math.PI/180, dLng=(b.lng-a.lng)*Math.PI/180;
+      const x=Math.sin(dLat/2)**2+Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLng/2)**2;
+      return 2*r*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));
+    }
+    function cardinal(deg) { return ['N','NE','E','SE','S','SW','W','NW'][Math.round(deg/45)%8]; }
+    function hashCode(value) { let hash=0; for(let i=0;i<value.length;i++) hash=((hash<<5)-hash)+value.charCodeAt(i)|0; return hash; }
+    function showToast(message) {
+      const toast = document.getElementById('toast');
+      toast.textContent = message; toast.style.display = 'block';
+      clearTimeout(showToast.timer); showToast.timer = setTimeout(() => toast.style.display = 'none', 3000);
+    }
+    function escapeHtml(text) { const e=document.createElement('div'); e.textContent=text; return e.innerHTML; }
+    setTimeout(locate, 900);
+  </script>
+</body>
+</html>
+

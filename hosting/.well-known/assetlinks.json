@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.ridebuddy.app",
+      "sha256_cert_fingerprints": [
+        "A6:26:33:7B:60:BD:16:4E:3B:78:C1:51:1C:65:44:59:6D:00:9B:40:39:BD:CE:EE:27:68:2D:CB:49:D1:12:01"
+      ]
+    }
+  }
+]

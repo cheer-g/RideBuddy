@@ -1,0 +1,31 @@
+{
+  "rules": {
+    "trips": {
+      "$trip": {
+        ".read": "auth != null",
+        "meta": {
+          ".write": "auth != null && (!data.exists() || data.child('ownerId').val() == auth.uid)",
+          ".validate": "newData.hasChildren(['ownerId', 'status', 'createdAt', 'expiresAt', 'destinationTitle', 'destinationLat', 'destinationLng', 'joinLocked']) && newData.child('expiresAt').isNumber() && newData.child('destinationLat').isNumber() && newData.child('destinationLng').isNumber() && newData.child('joinLocked').isBoolean()"
+        },
+        "members": {
+          "$uid": {
+            ".write": "auth != null && (auth.uid == $uid || root.child('trips').child($trip).child('meta').child('ownerId').val() == auth.uid) && (data.exists() || root.child('trips').child($trip).child('meta').child('joinLocked').val() != true || root.child('trips').child($trip).child('meta').child('ownerId').val() == auth.uid)",
+            ".validate": "newData.hasChildren(['name', 'joinedAt'])"
+          }
+        },
+        "locations": {
+          "$uid": {
+            ".write": "auth != null && auth.uid == $uid && root.child('trips').child($trip).child('members').child(auth.uid).exists()",
+            ".validate": "!newData.exists() || newData.hasChildren(['riderId', 'name', 'lat', 'lng', 'updatedAt'])"
+          }
+        },
+        "stops": {
+          ".write": "auth != null && root.child('trips').child($trip).child('meta').child('ownerId').val() == auth.uid",
+          "$stop": {
+            ".validate": "!newData.exists() || newData.hasChildren(['type', 'label', 'lat', 'lng', 'createdBy', 'createdAt'])"
+          }
+        }
+      }
+    }
+  }
+}
